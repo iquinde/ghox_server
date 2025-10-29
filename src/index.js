@@ -4,6 +4,7 @@ import cors from "cors";
 import { connectDB } from "./db.js";
 import { authRouter } from "./routes/auth.js";
 import { usersRouter } from "./routes/users.js";
+import { iceRouter } from "./routes/ice.js";
 import http from "http";
 import { initSignaling } from "./signaling.js";
 
@@ -14,6 +15,7 @@ app.use(express.json());
 app.get("/health", (req, res) => res.json({ ok: true }));
 app.use("/api/auth", authRouter);
 app.use("/api/users", usersRouter);
+app.use("/api/ice-config", iceRouter);
 
 const server = http.createServer(app);
 initSignaling(server);

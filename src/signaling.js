@@ -1,38 +1,123 @@
 import { WebSocketServer } from "ws";
+import jwt from "jsonwebtoken";
+import { Call } from "./models/Call.js";
+
+function generateCallId() {
+  return `call_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
 
 export function initSignaling(server) {
-  const wss = new WebSocketServer({ server, path: "/ws" });
-  const idToSocket = new Map();
+  const wss = new WebSocketServer({ server });
+  const userSockets = new Map(); // userId -> ws
 
-  wss.on("connection", (ws) => {
-    let myId = null;
+  wss.on("connection", async (ws, req) => {
+    // Expect token as query param: wss://.../?token=JWT
+    try {
+      const url = new URL(req.url, `http://${req.headers.host}`);
+      const token = url.searchParams.get("token");
+      if (!token) throw new Error("missing token");
 
-    ws.on("message", (raw) => {
+      const payload = jwt.verify(token, process.env.JWT_SECRET);
+      ws.user = payload;
+      userSockets.set(payload.userId, ws);
+
+      console.log("WS connected:", payload.userId);
+    } catch (err) {
+      console.warn("WS auth failed:", err.message);
+      try { ws.close(4001, "unauthorized"); } catch {}
+      return;
+    }
+
+    ws.on("message", async (raw) => {
       let data;
-      try { data = JSON.parse(raw); } catch { return; }
-
-      if (data.type === "register" && data.userId) {
-        myId = data.userId;
-        idToSocket.set(myId, ws);
-        ws.send(JSON.stringify({ type: "registered", userId: myId }));
+      try {
+        data = JSON.parse(raw.toString());
+      } catch {
         return;
       }
 
-      if (["offer", "answer", "ice"].includes(data.type)) {
-        const dest = idToSocket.get(data.to);
-        if (dest && dest.readyState === 1) {
-          data.from = myId;
-          dest.send(JSON.stringify(data));
+      const type = data.type;
+      const fromId = ws.user?.userId;
+
+      // Forward SDP/ICE to target if connected
+      if (["offer", "answer", "ice"].includes(type)) {
+        const targetWs = userSockets.get(data.to);
+        if (targetWs) {
+          targetWs.send(JSON.stringify({ ...data, from: fromId }));
         } else {
-          ws.send(JSON.stringify({ type: "delivery_failed", to: data.to }));
+          ws.send(JSON.stringify({ type: "peer-offline", to: data.to }));
         }
+        return;
+      }
+
+      // Call lifecycle
+      if (type === "call-init") {
+        const to = data.to;
+        const callId = generateCallId();
+        const call = await Call.create({
+          callId,
+          from: fromId,
+          to,
+          status: "ringing",
+          meta: data.meta || {},
+        });
+
+        const targetWs = userSockets.get(to);
+        if (targetWs) {
+          targetWs.send(
+            JSON.stringify({
+              type: "incoming-call",
+              callId,
+              from: fromId,
+              meta: data.meta || {},
+            })
+          );
+        } else {
+          await Call.findByIdAndUpdate(call._id, {
+            status: "missed",
+            endedAt: new Date(),
+          });
+          ws.send(JSON.stringify({ type: "call-missed", callId }));
+        }
+        return;
+      }
+
+      if (type === "call-accept") {
+        const { callId } = data;
+        await Call.findOneAndUpdate({ callId }, { status: "in_call", startedAt: new Date() });
+        const originWs = userSockets.get(data.from);
+        if (originWs) originWs.send(JSON.stringify({ type: "call-accepted", callId }));
+        return;
+      }
+
+      if (type === "call-reject") {
+        const { callId } = data;
+        await Call.findOneAndUpdate({ callId }, { status: "rejected", endedAt: new Date() });
+        const originWs = userSockets.get(data.from);
+        if (originWs) originWs.send(JSON.stringify({ type: "call-rejected", callId }));
+        return;
+      }
+
+      if (type === "hangup") {
+        const { callId, to } = data;
+        await Call.findOneAndUpdate({ callId }, { status: "ended", endedAt: new Date() });
+        const otherWs = userSockets.get(to);
+        if (otherWs) otherWs.send(JSON.stringify({ type: "hangup", callId }));
+        return;
       }
     });
 
     ws.on("close", () => {
-      if (myId) idToSocket.delete(myId);
+      if (ws.user?.userId) {
+        userSockets.delete(ws.user.userId);
+        console.log("WS disconnected:", ws.user.userId);
+      }
+    });
+
+    ws.on("error", (err) => {
+      console.warn("WS error", err);
     });
   });
 
-  console.log("✅ WebSocket signaling activo con IDs");
+  console.log("✅ WebSocket signaling inicializado");
 }
