@@ -28,7 +28,13 @@ usersRouter.post("/find", authMiddleware, async (req, res) => {
  * Devuelve todos los usuarios (solo campos públicos)
  */
 usersRouter.get("/", authMiddleware, async (req, res) => {
-  const users = await User.find({}, { userId: 1, username: 1, displayName: 1 }).lean();
+  // exclude the current user and the admin user (if ADMIN_USERNAME is set)
+  const filter = { userId: { $ne: req.user.userId } };
+  if (process.env.ADMIN_USERNAME) {
+    filter.username = { $ne: process.env.ADMIN_USERNAME };
+  }
+
+  const users = await User.find(filter, { userId: 1, username: 1, displayName: 1 }).lean();
   res.json({ users });
 });
 

@@ -7,6 +7,7 @@ import { usersRouter } from "./routes/users.js";
 import { iceRouter } from "./routes/ice.js";
 import http from "http";
 import { initSignaling } from "./signaling.js";
+import { callsRouter } from "./routes/calls.js";
 
 const app = express();
 app.use(cors());
@@ -16,6 +17,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.use("/api/auth", authRouter);
 app.use("/api/users", usersRouter);
 app.use("/api/ice-config", iceRouter);
+app.use("/api/calls", callsRouter);
 
 const server = http.createServer(app);
 initSignaling(server);
