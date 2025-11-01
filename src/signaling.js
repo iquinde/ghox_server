@@ -2,13 +2,14 @@ import { WebSocketServer } from "ws";
 import jwt from "jsonwebtoken";
 import { Call } from "./models/Call.js";
 
+export const userSockets = new Map(); // userId -> ws
+
 function generateCallId() {
   return `call_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
 export function initSignaling(server) {
   const wss = new WebSocketServer({ server });
-  const userSockets = new Map(); // userId -> ws
 
   wss.on("connection", async (ws, req) => {
     // Expect token as query param: wss://.../?token=JWT
@@ -42,7 +43,7 @@ export function initSignaling(server) {
       // Forward SDP/ICE to target if connected
       if (["offer", "answer", "ice"].includes(type)) {
         const targetWs = userSockets.get(data.to);
-        if (targetWs) {
+        if (targetWs && targetWs.readyState === targetWs.OPEN) {
           targetWs.send(JSON.stringify({ ...data, from: fromId }));
         } else {
           ws.send(JSON.stringify({ type: "peer-offline", to: data.to }));
@@ -50,7 +51,7 @@ export function initSignaling(server) {
         return;
       }
 
-      // Call lifecycle
+      // Call lifecycle (signaling messages)
       if (type === "call-init") {
         const to = data.to;
         const callId = generateCallId();
@@ -63,7 +64,7 @@ export function initSignaling(server) {
         });
 
         const targetWs = userSockets.get(to);
-        if (targetWs) {
+        if (targetWs && targetWs.readyState === targetWs.OPEN) {
           targetWs.send(
             JSON.stringify({
               type: "incoming-call",
@@ -86,7 +87,9 @@ export function initSignaling(server) {
         const { callId } = data;
         await Call.findOneAndUpdate({ callId }, { status: "in_call", startedAt: new Date() });
         const originWs = userSockets.get(data.from);
-        if (originWs) originWs.send(JSON.stringify({ type: "call-accepted", callId }));
+        if (originWs && originWs.readyState === originWs.OPEN) {
+          originWs.send(JSON.stringify({ type: "call-accepted", callId }));
+        }
         return;
       }
 
@@ -94,7 +97,9 @@ export function initSignaling(server) {
         const { callId } = data;
         await Call.findOneAndUpdate({ callId }, { status: "rejected", endedAt: new Date() });
         const originWs = userSockets.get(data.from);
-        if (originWs) originWs.send(JSON.stringify({ type: "call-rejected", callId }));
+        if (originWs && originWs.readyState === originWs.OPEN) {
+          originWs.send(JSON.stringify({ type: "call-rejected", callId }));
+        }
         return;
       }
 
@@ -102,9 +107,13 @@ export function initSignaling(server) {
         const { callId, to } = data;
         await Call.findOneAndUpdate({ callId }, { status: "ended", endedAt: new Date() });
         const otherWs = userSockets.get(to);
-        if (otherWs) otherWs.send(JSON.stringify({ type: "hangup", callId }));
+        if (otherWs && otherWs.readyState === otherWs.OPEN) {
+          otherWs.send(JSON.stringify({ type: "hangup", callId }));
+        }
         return;
       }
+
+      // ignore unknown types
     });
 
     ws.on("close", () => {
@@ -120,4 +129,19 @@ export function initSignaling(server) {
   });
 
   console.log("✅ WebSocket signaling inicializado");
+}
+
+// notifyUser helper (WebSocket)
+export function notifyUser(userId, payload) {
+  const ws = userSockets.get(userId);
+  if (!ws) return false;
+  try {
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify(payload));
+      return true;
+    }
+  } catch (e) {
+    console.warn("notifyUser error", e);
+  }
+  return false;
 }
