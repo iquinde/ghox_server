@@ -17,7 +17,7 @@ iceRouter.get("/", async (req, res) => {
         ]
       });
     }
-
+    console.warn("No TURN/Twilio config found, returning public STUN only");
     return res.json({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
   } catch (err) {
     console.error("ice-config error:", err);
