@@ -8,6 +8,8 @@ import { iceRouter } from "./routes/ice.js";
 import http from "http";
 import { initSignaling } from "./signaling.js";
 import { callsRouter } from "./routes/calls.js";
+import swaggerUi from "swagger-ui-express";
+import YAML from "yamljs";
 
 const app = express();
 app.use(cors());
@@ -18,6 +20,10 @@ app.use("/api/auth", authRouter);
 app.use("/api/users", usersRouter);
 app.use("/api/ice-config", iceRouter);
 app.use("/api/calls", callsRouter);
+
+// Swagger/OpenAPI
+const swaggerDocument = YAML.load("./docs/openapi.yaml");
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 const server = http.createServer(app);
 initSignaling(server);
