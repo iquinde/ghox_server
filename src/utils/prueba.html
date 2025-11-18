@@ -1,296 +1,379 @@
 <!DOCTYPE html>
-<html>
-<head>
-  <title>Ghox WebRTC Test Client</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    .section { margin: 10px 0; padding: 10px; border: 1px solid #ddd; }
-    input { margin: 5px; padding: 8px; }
-    button { margin: 5px; padding: 8px 15px; background: #007cba; color: white; border: none; cursor: pointer; }
-    button:hover { background: #005a87; }
-    video { width: 300px; height: 200px; margin: 10px; border: 1px solid #ccc; }
-    #logs { height: 200px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; font-family: monospace; font-size: 12px; background: #f9f9f9; }
-  </style>
-</head>
-<body>
-  <div class="section">
-    <h3>🎯 Ghox WebRTC Test Client</h3>
     <div>
       <input id="jwt" placeholder="Your JWT token" style="width:400px">
       <input id="myUserId" placeholder="Your userId" style="width:150px">
       <input id="targetUserId" placeholder="Target userId" style="width:150px">
     </div>
     <div>
+      <label style="margin-right:10px"><input type="checkbox" id="voiceOnlyMode"> Voice-only</label>
       <button onclick="connect()">🔗 Connect WebSocket</button>
       <button onclick="getUsers()">👥 Get Users</button>
-      <button onclick="startCall()">📞 Start Call</button>
-      <button onclick="acceptCall()">✅ Accept Call</button>
-      <button onclick="hangup()">❌ Hangup</button>
-    </div>
-  </div>
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Ghox WebRTC Voice Test</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 20px; }
+          .section { margin: 10px 0; padding: 10px; border: 1px solid #ddd; }
+          input { margin: 5px; padding: 8px; }
+          button { margin: 5px; padding: 8px 15px; background: #007cba; color: white; border: none; cursor: pointer; }
+          button:hover { background: #005a87; }
+          video { width: 300px; height: 200px; margin: 10px; border: 1px solid #ccc; }
+          #logs { height: 200px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; font-family: monospace; font-size: 12px; background: #f9f9f9; }
+          label { font-size: 14px; }
+        </style>
+      </head>
+      <body>
+        <div class="section">
+          <h3>🎯 Ghox WebRTC Voice Test Client</h3>
+          <div>
+            <input id="jwt" placeholder="Your JWT token" style="width:420px">
+            <input id="myUserId" placeholder="Your userId" style="width:160px">
+            <input id="targetUserId" placeholder="Target userId" style="width:160px">
+          </div>
+          <div style="margin-top:8px">
+            <label style="margin-right:12px"><input type="checkbox" id="voiceOnlyMode"> Voice-only</label>
+            <button onclick="connect()">🔗 Connect WebSocket</button>
+            <button onclick="getUsers()">👥 Get Users</button>
+            <button onclick="startCall()">📞 Start Call (WS)</button>
+            <button onclick="startVoiceCall()">🎧 Start Voice Call (REST -> WS)</button>
+            <button onclick="acceptCall()">✅ Accept Call</button>
+            <button onclick="hangup()">❌ Hangup</button>
+          </div>
+        </div>
 
-  <div class="section">
-    <h4>📹 Video Streams</h4>
-    <video id="localVideo" autoplay muted></video>
-    <video id="remoteVideo" autoplay></video>
-  </div>
+        <div class="section">
+          <h4>📹 Streams</h4>
+          <video id="localVideo" autoplay muted style="display:inline-block"></video>
+          <video id="remoteVideo" autoplay style="display:inline-block"></video>
+          <audio id="remoteAudio" autoplay controls style="display:block; margin-top:8px"></audio>
+        </div>
 
-  <div class="section">
-    <h4>📋 Logs</h4>
-    <div id="logs"></div>
-    <button onclick="clearLogs()">Clear Logs</button>
-  </div>
+        <div class="section">
+          <h4>📋 Logs</h4>
+          <div id="logs"></div>
+          <button onclick="clearLogs()">Clear Logs</button>
+        </div>
 
-  <script>
-    let ws, pc, localStream;
-    let currentCallId;
-    const API_BASE = 'http://localhost:8080';
-    const WS_BASE = 'ws://localhost:8080';
+        <script>
+          let ws, pc, localStream;
+          let currentCallId;
+          const API_BASE = 'https://ghox-server-hzis.onrender.com';
+          const WS_BASE = 'https://ghox-server-hzis.onrender.com/ws';
 
-    function log(msg) {
-      const logs = document.getElementById('logs');
-      const timestamp = new Date().toLocaleTimeString();
-      logs.innerHTML += `<div style="margin:2px 0">[${timestamp}] ${msg}</div>`;
-      logs.scrollTop = logs.scrollHeight;
-    }
+          function log(msg) {
+            const logs = document.getElementById('logs');
+            const timestamp = new Date().toLocaleTimeString();
+            logs.innerHTML += `<div style="margin:2px 0">[${timestamp}] ${msg}</div>`;
+            logs.scrollTop = logs.scrollHeight;
+          }
 
-    function clearLogs() {
-      document.getElementById('logs').innerHTML = '';
-    }
+          function clearLogs() {
+            document.getElementById('logs').innerHTML = '';
+          }
 
-    async function getUsers() {
-      const jwt = document.getElementById('jwt').value;
-      if (!jwt) return log('❌ Missing JWT');
+          async function getUsers() {
+            const jwt = document.getElementById('jwt').value;
+            if (!jwt) return log('❌ Missing JWT');
 
-      try {
-        const res = await fetch(`${API_BASE}/api/users`, {
-          headers: { Authorization: `Bearer ${jwt}` }
-        });
-        const data = await res.json();
-        log(`👥 Available users: ${JSON.stringify(data.users.map(u => ({id: u.userId, name: u.username})))}`);
-      } catch (e) {
-        log(`❌ Get users error: ${e.message}`);
-      }
-    }
-
-    async function connect() {
-      const jwt = document.getElementById('jwt').value;
-      const myUserId = document.getElementById('myUserId').value;
-      
-      if (!jwt || !myUserId) return log('❌ Missing JWT or userId');
-
-      try {
-        // Get ICE servers
-        const iceRes = await fetch(`${API_BASE}/api/ice-config`, {
-          headers: { Authorization: `Bearer ${jwt}` }
-        });
-        const { iceServers } = await iceRes.json();
-        log(`🧊 Got ${iceServers.length} ICE servers`);
-
-        // Create peer connection
-        pc = new RTCPeerConnection({ iceServers });
-        pc.onicecandidate = e => {
-          if (e.candidate) {
-            const target = document.getElementById('targetUserId').value;
-            if (target && ws && ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({
-                type: 'ice',
-                to: target,
-                candidate: e.candidate
-              }));
-              log('🧊 ICE candidate sent');
+            try {
+              const res = await fetch(`${API_BASE}/api/users`, {
+                headers: { Authorization: `Bearer ${jwt}` }
+              });
+              const data = await res.json();
+              log(`👥 Available users: ${JSON.stringify((data.users||[]).map(u => ({id: u.userId, name: u.username})))}`);
+            } catch (e) {
+              log(`❌ Get users error: ${e.message || e}`);
             }
           }
-        };
-        pc.ontrack = e => {
-          document.getElementById('remoteVideo').srcObject = e.streams[0];
-          log('📹 Remote stream received');
-        };
-        pc.onconnectionstatechange = () => {
-          log(`🔗 PC state: ${pc.connectionState}`);
-        };
 
-        // Get local media
-        localStream = await navigator.mediaDevices.getUserMedia({ 
-          audio: true, 
-          video: { width: 640, height: 480 } 
-        });
-        document.getElementById('localVideo').srcObject = localStream;
-        localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-        log('📹 Local media added');
+          async function connect() {
+            const jwt = document.getElementById('jwt').value;
+            const myUserId = document.getElementById('myUserId').value;
+            if (!jwt || !myUserId) return log('❌ Missing JWT or userId');
 
-        // Connect WebSocket
-        ws = new WebSocket(`${WS_BASE}?token=${jwt}`);
-        ws.onopen = () => log('🔗 WebSocket connected');
-        ws.onclose = e => log(`❌ WebSocket disconnected: ${e.code} ${e.reason}`);
-        ws.onerror = e => log(`❌ WebSocket error: ${e}`);
-        ws.onmessage = handleMessage;
+            try {
+              // Get ICE servers
+              const iceRes = await fetch(`${API_BASE}/api/ice-config`, {
+                headers: { Authorization: `Bearer ${jwt}` }
+              });
+              const { iceServers } = await iceRes.json();
+              log(`🧊 Got ${iceServers.length} ICE servers`);
 
-      } catch (e) {
-        log(`❌ Connect error: ${e.message}`);
-      }
-    }
+              // Create peer connection
+              pc = new RTCPeerConnection({ iceServers });
+              pc.onicecandidate = e => {
+                if (e.candidate) {
+                  const target = document.getElementById('targetUserId').value;
+                  if (target && ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'ice', to: target, candidate: e.candidate }));
+                    log('🧊 ICE candidate sent');
+                  }
+                }
+              };
+              pc.ontrack = e => {
+                const stream = e.streams[0];
+                const hasVideo = stream.getVideoTracks && stream.getVideoTracks().length > 0;
+                if (hasVideo) {
+                  document.getElementById('remoteVideo').srcObject = stream;
+                  document.getElementById('remoteVideo').style.display = 'inline-block';
+                  document.getElementById('remoteAudio').style.display = 'none';
+                  log('📹 Remote video stream received');
+                } else {
+                  document.getElementById('remoteAudio').srcObject = stream;
+                  document.getElementById('remoteAudio').style.display = 'block';
+                  document.getElementById('remoteVideo').style.display = 'none';
+                  log('🎧 Remote audio stream received');
+                }
+              };
+              pc.onconnectionstatechange = () => {
+                log(`🔗 PC state: ${pc.connectionState}`);
+              };
 
-    async function handleMessage(ev) {
-      let msg;
-      try {
-        msg = JSON.parse(ev.data);
-      } catch (e) {
-        return log('❌ Invalid JSON message received');
-      }
-      
-      log(`📨 Received: ${msg.type} ${msg.callId ? `(${msg.callId})` : ''}`);
+              // Get local media (respect voice-only choice)
+              const voiceOnly = document.getElementById('voiceOnlyMode').checked;
+              localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: voiceOnly ? false : { width: 640, height: 480 } });
+              document.getElementById('localVideo').srcObject = localStream;
+              localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+              log('📹 Local media added');
 
-      if (msg.type === 'incoming-call') {
-        currentCallId = msg.callId;
-        log(`📞 Incoming call from ${msg.from}, callId: ${msg.callId}`);
-        // Show alert for manual acceptance
-        if (confirm(`Incoming call from ${msg.from}. Accept?`)) {
-          acceptCall();
-        } else {
-          rejectCall();
-        }
-      }
+              // Connect WebSocket (token in query param)
+              ws = new WebSocket(`${WS_BASE}?token=${jwt}`);
+              ws.onopen = () => log('🔗 WebSocket connected');
+              ws.onclose = e => log(`❌ WebSocket disconnected: ${e.code} ${e.reason}`);
+              ws.onerror = e => log(`❌ WebSocket error: ${e}`);
+              ws.onmessage = handleMessage;
 
-      if (msg.type === 'call-accepted') {
-        log('✅ Call accepted by peer');
-      }
+            } catch (e) {
+              log(`❌ Connect error: ${e.message || e}`);
+            }
+          }
 
-      if (msg.type === 'call-rejected') {
-        log('❌ Call rejected by peer');
-      }
+          async function handleMessage(ev) {
+            let msg;
+            try {
+              msg = JSON.parse(ev.data);
+            } catch (e) {
+              return log('❌ Invalid JSON message received');
+            }
 
-      if (msg.type === 'offer') {
-        try {
-          await pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          ws.send(JSON.stringify({
-            type: 'answer',
-            to: msg.from,
-            sdp: answer.sdp
-          }));
-          log('📤 Answer sent');
-        } catch (e) {
-          log(`❌ Offer handling error: ${e.message}`);
-        }
-      }
+            log(`📨 Received: ${msg.type} ${msg.callId ? `(${msg.callId})` : ''}`);
 
-      if (msg.type === 'answer') {
-        try {
-          await pc.setRemoteDescription({ type: 'answer', sdp: msg.sdp });
-          log('📥 Answer received and applied');
-        } catch (e) {
-          log(`❌ Answer error: ${e.message}`);
-        }
-      }
+            if (msg.type === 'incoming-call') {
+              currentCallId = msg.callId;
+              log(`📞 Incoming call from ${msg.from}, callId: ${msg.callId}`);
+              // Show alert for manual acceptance. If accepted, prepare local audio if voice-only.
+              if (confirm(`Incoming call from ${msg.from}. Accept?`)) {
+                const incomingVoiceOnly = msg.meta && msg.meta.voiceOnly;
+                if (incomingVoiceOnly) {
+                  try {
+                    const s = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                    // replace video senders if any
+                    if (pc) {
+                      pc.getSenders().forEach(sender => {
+                        if (sender.track && sender.track.kind === 'video') {
+                          try { pc.removeTrack(sender); } catch (e) {}
+                        }
+                      });
+                      s.getTracks().forEach(t => pc.addTrack(t, s));
+                    }
+                    localStream = s;
+                    document.getElementById('localVideo').srcObject = localStream;
+                  } catch (e) {
+                    log('❌ Could not get microphone: ' + (e.message || e));
+                  }
+                }
+                acceptCall();
+              } else {
+                rejectCall();
+              }
+            }
 
-      if (msg.type === 'ice') {
-        try {
-          await pc.addIceCandidate(msg.candidate);
-          log('🧊 ICE candidate added');
-        } catch (e) {
-          log(`❌ ICE error: ${e.message}`);
-        }
-      }
+            if (msg.type === 'call-accepted') {
+              log('✅ Call accepted by peer');
+            }
 
-      if (msg.type === 'hangup') {
-        log('❌ Call ended by peer');
-        hangup();
-      }
+            if (msg.type === 'call-rejected') {
+              log('❌ Call rejected by peer');
+            }
 
-      if (msg.type === 'peer-offline') {
-        log(`❌ Peer ${msg.to} is offline`);
-      }
-    }
+            if (msg.type === 'offer') {
+              try {
+                await pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                ws.send(JSON.stringify({ type: 'answer', to: msg.from, sdp: answer.sdp }));
+                log('📤 Answer sent');
+              } catch (e) {
+                log(`❌ Offer handling error: ${e.message || e}`);
+              }
+            }
 
-    async function startCall() {
-      const jwt = document.getElementById('jwt').value;
-      const targetUserId = document.getElementById('targetUserId').value;
-      
-      if (!ws || ws.readyState !== WebSocket.OPEN) return log('❌ WebSocket not connected');
-      if (!targetUserId) return log('❌ Set target userId first');
-      if (!pc) return log('❌ Connect first');
+            if (msg.type === 'answer') {
+              try {
+                await pc.setRemoteDescription({ type: 'answer', sdp: msg.sdp });
+                log('📥 Answer received and applied');
+              } catch (e) {
+                log(`❌ Answer error: ${e.message || e}`);
+              }
+            }
 
-      try {
-        // Send call-init via WebSocket
-        ws.send(JSON.stringify({
-          type: 'call-init',
-          to: targetUserId,
-          meta: { displayName: 'Test Call', from: document.getElementById('myUserId').value }
-        }));
-        log('📞 Call initiated via WebSocket');
+            if (msg.type === 'ice') {
+              try {
+                await pc.addIceCandidate(msg.candidate);
+                log('🧊 ICE candidate added');
+              } catch (e) {
+                log(`❌ ICE error: ${e.message || e}`);
+              }
+            }
 
-        // Create and send offer
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        ws.send(JSON.stringify({
-          type: 'offer',
-          to: targetUserId,
-          sdp: offer.sdp
-        }));
-        log('📤 Offer sent');
+            if (msg.type === 'hangup') {
+              log('❌ Call ended by peer');
+              hangup();
+            }
 
-      } catch (e) {
-        log(`❌ Start call error: ${e.message}`);
-      }
-    }
+            if (msg.type === 'peer-offline') {
+              log(`❌ Peer ${msg.to} is offline`);
+            }
+          }
 
-    function acceptCall() {
-      if (!currentCallId) return log('❌ No incoming call');
-      if (!ws || ws.readyState !== WebSocket.OPEN) return log('❌ WebSocket not connected');
-      
-      ws.send(JSON.stringify({
-        type: 'call-accept',
-        callId: currentCallId,
-        from: document.getElementById('myUserId').value
-      }));
-      log('✅ Call accepted');
-    }
+          async function startCall() {
+            const jwt = document.getElementById('jwt').value;
+            const targetUserId = document.getElementById('targetUserId').value;
 
-    function rejectCall() {
-      if (!currentCallId) return log('❌ No incoming call');
-      if (!ws || ws.readyState !== WebSocket.OPEN) return log('❌ WebSocket not connected');
-      
-      ws.send(JSON.stringify({
-        type: 'call-reject',
-        callId: currentCallId,
-        from: document.getElementById('myUserId').value
-      }));
-      log('❌ Call rejected');
-      currentCallId = null;
-    }
+            if (!ws || ws.readyState !== WebSocket.OPEN) return log('❌ WebSocket not connected');
+            if (!targetUserId) return log('❌ Set target userId first');
+            if (!pc) return log('❌ Connect first');
 
-    function hangup() {
-      if (currentCallId && ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: 'hangup',
-          callId: currentCallId,
-          to: document.getElementById('targetUserId').value
-        }));
-      }
-      
-      if (pc) {
-        pc.close();
-        pc = null;
-      }
-      if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-        localStream = null;
-      }
-      
-      document.getElementById('localVideo').srcObject = null;
-      document.getElementById('remoteVideo').srcObject = null;
-      currentCallId = null;
-      
-      log('❌ Call ended');
-    }
+            try {
+              // Send call-init via WebSocket
+              ws.send(JSON.stringify({ type: 'call-init', to: targetUserId, meta: { displayName: 'Test Call', from: document.getElementById('myUserId').value } }));
+              log('📞 Call initiated via WebSocket');
 
-    // Auto-fill demo data
-    window.addEventListener('load', () => {
-      log('🚀 Ghox WebRTC Test Client loaded');
-      log('📋 Steps: 1) Get JWT from /api/auth/register, 2) Fill JWT + userIds, 3) Connect, 4) Test call');
-    });
-  </script>
-</body>
-</html>
+              // Create and send offer
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              ws.send(JSON.stringify({ type: 'offer', to: targetUserId, sdp: offer.sdp }));
+              log('📤 Offer sent');
+
+            } catch (e) {
+              log(`❌ Start call error: ${e.message || e}`);
+            }
+          }
+
+          function acceptCall() {
+            if (!currentCallId) return log('❌ No incoming call');
+            if (!ws || ws.readyState !== WebSocket.OPEN) return log('❌ WebSocket not connected');
+
+            ws.send(JSON.stringify({ type: 'call-accept', callId: currentCallId, from: document.getElementById('myUserId').value }));
+            log('✅ Call accepted');
+          }
+
+          function rejectCall() {
+            if (!currentCallId) return log('❌ No incoming call');
+            if (!ws || ws.readyState !== WebSocket.OPEN) return log('❌ WebSocket not connected');
+
+            ws.send(JSON.stringify({ type: 'call-reject', callId: currentCallId, from: document.getElementById('myUserId').value }));
+            log('❌ Call rejected');
+            currentCallId = null;
+          }
+
+          function hangup() {
+            if (currentCallId && ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'hangup', callId: currentCallId, to: document.getElementById('targetUserId').value }));
+            }
+
+            if (pc) {
+              pc.close();
+              pc = null;
+            }
+            if (localStream) {
+              localStream.getTracks().forEach(track => track.stop());
+              localStream = null;
+            }
+
+            document.getElementById('localVideo').srcObject = null;
+            document.getElementById('remoteVideo').srcObject = null;
+            document.getElementById('remoteAudio').srcObject = null;
+            currentCallId = null;
+
+            log('❌ Call ended');
+          }
+
+          // Start voice-only call via REST endpoint then send offer over WS
+          async function startVoiceCall() {
+            const jwt = document.getElementById('jwt').value;
+            const targetUserId = document.getElementById('targetUserId').value;
+            const myUserId = document.getElementById('myUserId').value;
+
+            if (!jwt) return log('❌ Missing JWT');
+            if (!targetUserId) return log('❌ Missing target userId');
+            if (!ws || ws.readyState !== WebSocket.OPEN) return log('❌ WebSocket not connected');
+
+            try {
+              // Create call record via REST
+              const res = await fetch(`${API_BASE}/api/calls/voice`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+                body: JSON.stringify({ to: targetUserId, meta: { initiatedBy: myUserId, voiceOnly: true } })
+              });
+              const data = await res.json();
+              if (!res.ok) {
+                log('❌ Voice call create failed: ' + JSON.stringify(data));
+                return;
+              }
+              currentCallId = data.callId;
+              log('📞 Voice call record created, callId: ' + currentCallId);
+
+              // Ensure pc exists and is configured for audio-only
+              if (!pc) {
+                const iceRes = await fetch(`${API_BASE}/api/ice-config`, { headers: { Authorization: `Bearer ${jwt}` } });
+                const { iceServers } = await iceRes.json();
+                pc = new RTCPeerConnection({ iceServers });
+                pc.onicecandidate = e => {
+                  if (e.candidate) {
+                    ws.send(JSON.stringify({ type: 'ice', to: targetUserId, candidate: e.candidate }));
+                  }
+                };
+                pc.ontrack = e => {
+                  const stream = e.streams[0];
+                  document.getElementById('remoteAudio').srcObject = stream;
+                  document.getElementById('remoteAudio').style.display = 'block';
+                  document.getElementById('remoteVideo').style.display = 'none';
+                  log('🎧 Remote audio stream received');
+                };
+              }
+
+              // get audio-only local media
+              if (!localStream || (localStream.getVideoTracks && localStream.getVideoTracks().length > 0)) {
+                try {
+                  localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                  document.getElementById('localVideo').srcObject = localStream;
+                  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+                  log('🎤 Local audio track added');
+                } catch (e) {
+                  log('❌ Could not get microphone: ' + (e.message || e));
+                  return;
+                }
+              }
+
+              // Create and send offer
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              ws.send(JSON.stringify({ type: 'offer', to: targetUserId, sdp: offer.sdp }));
+              log('📤 Offer (voice) sent');
+
+            } catch (e) {
+              log('❌ startVoiceCall error: ' + (e.message || e));
+            }
+          }
+
+          // Auto-fill demo data
+          window.addEventListener('load', () => {
+            log('🚀 Ghox WebRTC Test Client loaded');
+            log('📋 Steps: 1) Get JWT from /api/auth/register or /api/auth/login, 2) Fill JWT + userIds, 3) Connect, 4) Test call');
+          });
+        </script>
+      </body>
+      </html>
