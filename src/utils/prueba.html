@@ -221,10 +221,25 @@
 
             if (msg.type === 'ice') {
               try {
-                await pc.addIceCandidate(msg.candidate);
+                // Soporte para ambos formatos: objeto candidate o campos directos
+                let candidateObj;
+                if (msg.candidate && typeof msg.candidate === 'object') {
+                  // Formato nuevo: { candidate: { candidate: "...", sdpMid: "...", sdpMLineIndex: 0 } }
+                  candidateObj = msg.candidate;
+                } else {
+                  // Formato legacy: { candidate: "...", sdpMid: "...", sdpMLineIndex: 0 }
+                  candidateObj = {
+                    candidate: msg.candidate,
+                    sdpMid: msg.sdpMid,
+                    sdpMLineIndex: msg.sdpMLineIndex
+                  };
+                }
+                
+                await pc.addIceCandidate(candidateObj);
                 log('🧊 ICE candidate added');
               } catch (e) {
                 log(`❌ ICE error: ${e.message || e}`);
+                log(`❌ ICE details - msg.candidate: ${JSON.stringify(msg.candidate)}`);
               }
             }
 
