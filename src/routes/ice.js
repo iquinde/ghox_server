@@ -17,11 +17,52 @@ iceRouter.get("/", async (req, res) => {
         ]
       });
     }
-    console.warn("No TURN/Twilio config found, returning public STUN only");
-    return res.json({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+    console.warn("No TURN/Twilio config found, returning enhanced public STUN/TURN servers");
+    return res.json({ 
+      iceServers: [
+        // Múltiples servidores STUN para mejor conectividad
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:stun2.l.google.com:19302" },
+        { urls: "stun:stun3.l.google.com:19302" },
+        { urls: "stun:stun4.l.google.com:19302" },
+        
+        // Servidores STUN alternativos
+        { urls: "stun:stun.services.mozilla.com" },
+        { urls: "stun:stun.stunprotocol.org:3478" },
+        
+        // Servidores TURN públicos para casos NAT restrictivo
+        {
+          urls: "turn:openrelay.metered.ca:80",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        },
+        {
+          urls: "turn:openrelay.metered.ca:443",
+          username: "openrelayproject", 
+          credential: "openrelayproject"
+        },
+        {
+          urls: "turn:openrelay.metered.ca:443?transport=tcp",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        }
+      ] 
+    });
   } catch (err) {
     console.error("ice-config error:", err);
-    // fallback a STUN público en vez de 500 para evitar romper clientes de prueba
-    return res.json({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+    // fallback a múltiples STUN/TURN en vez de solo uno para evitar romper clientes de prueba
+    return res.json({ 
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:stun.services.mozilla.com" },
+        {
+          urls: "turn:openrelay.metered.ca:80",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        }
+      ] 
+    });
   }
 });
