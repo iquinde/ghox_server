@@ -5,9 +5,10 @@ import { connectDB } from "./db.js";
 import { authRouter } from "./routes/auth.js";
 import { usersRouter } from "./routes/users.js";
 import { iceRouter } from "./routes/ice.js";
+import { callsRouter } from "./routes/calls.js";
+import { presenceRouter } from "./routes/presence.js";
 import http from "http";
 import { initSignaling } from "./signaling.js";
-import { callsRouter } from "./routes/calls.js";
 import swaggerUi from "swagger-ui-express";
 import YAML from "yamljs";
 
@@ -20,6 +21,7 @@ app.use("/api/auth", authRouter);
 app.use("/api/users", usersRouter);
 app.use("/api/ice-config", iceRouter);
 app.use("/api/calls", callsRouter);
+app.use("/api/presence", presenceRouter);
 
 // Swagger/OpenAPI
 const swaggerDocument = YAML.load("./docs/openapi.yaml");
