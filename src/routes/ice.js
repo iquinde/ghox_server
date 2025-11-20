@@ -30,6 +30,9 @@ iceRouter.get("/", async (req, res) => {
         // Servidores STUN alternativos
         { urls: "stun:stun.services.mozilla.com" },
         { urls: "stun:stun.stunprotocol.org:3478" },
+        { urls: "stun:stun.ekiga.net" },
+        { urls: "stun:stun.ideasip.com" },
+        { urls: "stun:stun.schlund.de" },
         
         // Servidores TURN públicos para casos NAT restrictivo
         {
@@ -46,6 +49,28 @@ iceRouter.get("/", async (req, res) => {
           urls: "turn:openrelay.metered.ca:443?transport=tcp",
           username: "openrelayproject",
           credential: "openrelayproject"
+        },
+        
+        // Servidores TURN adicionales para mejor conectividad entre redes
+        {
+          urls: "turn:a.relay.metered.ca:80",
+          username: "c6747f67ef7088cc93424ac1",
+          credential: "uYSdYgb8ac9tRw6V"
+        },
+        {
+          urls: "turn:a.relay.metered.ca:80?transport=tcp",
+          username: "c6747f67ef7088cc93424ac1", 
+          credential: "uYSdYgb8ac9tRw6V"
+        },
+        {
+          urls: "turn:a.relay.metered.ca:443",
+          username: "c6747f67ef7088cc93424ac1",
+          credential: "uYSdYgb8ac9tRw6V"
+        },
+        {
+          urls: "turn:a.relay.metered.ca:443?transport=tcp",
+          username: "c6747f67ef7088cc93424ac1",
+          credential: "uYSdYgb8ac9tRw6V"
         }
       ] 
     });
@@ -61,6 +86,11 @@ iceRouter.get("/", async (req, res) => {
           urls: "turn:openrelay.metered.ca:80",
           username: "openrelayproject",
           credential: "openrelayproject"
+        },
+        {
+          urls: "turn:a.relay.metered.ca:80",
+          username: "c6747f67ef7088cc93424ac1",
+          credential: "uYSdYgb8ac9tRw6V"
         }
       ] 
     });

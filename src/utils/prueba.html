@@ -35,6 +35,7 @@
           <div style="margin-top:8px">
             <label style="margin-right:12px"><input type="checkbox" id="voiceOnlyMode"> Voice-only</label>
             <button onclick="connect()">🔗 Connect WebSocket</button>
+            <button onclick="testConnectivity()">🔍 Test Network</button>
             <button onclick="getUsers()">👥 Get Users</button>
             <button onclick="startCall()">📞 Start Call (WS)</button>
             <button onclick="startVoiceCall()">🎧 Start Voice Call (REST -> WS)</button>
@@ -59,8 +60,8 @@
         <script>
           let ws, pc, localStream;
           let currentCallId;
-          const API_BASE = 'https://ghox-server-hzis.onrender.com';
-          const WS_BASE = 'https://ghox-server-hzis.onrender.com/ws';
+          const API_BASE = 'https://ghox-server.onrender.com';
+          const WS_BASE = 'wss://ghox-server.onrender.com/ws';
 
           function log(msg) {
             const logs = document.getElementById('logs');
@@ -71,6 +72,50 @@
 
           function clearLogs() {
             document.getElementById('logs').innerHTML = '';
+          }
+
+          async function testConnectivity() {
+            log('🔍 === NETWORK CONNECTIVITY TEST ===');
+            
+            try {
+              // Test 1: Basic internet connectivity
+              const ipResp = await fetch('https://httpbin.org/ip', { timeout: 5000 });
+              const ipData = await ipResp.json();
+              log(`✅ Public IP: ${ipData.origin}`);
+            } catch (e) {
+              log(`❌ Internet connectivity test failed: ${e.message}`);
+              return;
+            }
+            
+            try {
+              // Test 2: STUN server connectivity
+              log('🧊 Testing STUN servers...');
+              const stunTest = new RTCPeerConnection({ 
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] 
+              });
+              
+              let candidateCount = 0;
+              stunTest.onicecandidate = (e) => {
+                if (e.candidate) {
+                  candidateCount++;
+                  const type = e.candidate.candidate.includes('host') ? 'HOST'
+                    : e.candidate.candidate.includes('srflx') ? 'SRFLX' 
+                    : e.candidate.candidate.includes('relay') ? 'RELAY' : 'UNKNOWN';
+                  log(`🧊 STUN test candidate ${candidateCount}: ${type}`);
+                } else {
+                  log(`✅ STUN test complete - Generated ${candidateCount} candidates`);
+                  stunTest.close();
+                }
+              };
+              
+              // Trigger ICE gathering
+              await stunTest.createOffer();
+              
+            } catch (e) {
+              log(`❌ STUN test failed: ${e.message}`);
+            }
+            
+            log('🔍 === END CONNECTIVITY TEST ===');
           }
 
           async function getUsers() {
@@ -94,6 +139,12 @@
             if (!jwt || !myUserId) return log('❌ Missing JWT or userId');
 
             try {
+              // Test básico de conectividad de red
+              log('🌐 Testing network connectivity...');
+              const testResponse = await fetch('https://httpbin.org/ip');
+              const ipInfo = await testResponse.json();
+              log(`🌐 Client public IP: ${ipInfo.origin}`);
+              
               // Get ICE servers
               const iceRes = await fetch(`${API_BASE}/api/ice-config`, {
                 headers: { Authorization: `Bearer ${jwt}` }
@@ -101,14 +152,42 @@
               const { iceServers } = await iceRes.json();
               log(`🧊 Got ${iceServers.length} ICE servers`);
 
-              // Create peer connection
-              pc = new RTCPeerConnection({ iceServers });
+              // Create peer connection with enhanced ICE gathering
+              pc = new RTCPeerConnection({ 
+                iceServers,
+                iceCandidatePoolSize: 10,  // Pre-gather more candidates
+                bundlePolicy: 'max-bundle',
+                rtcpMuxPolicy: 'require'
+              });
+              // Diagnóstico de tipos de candidates
+              let hostCandidates = 0, srflxCandidates = 0, relayCandidates = 0;
+              
               pc.onicecandidate = e => {
                 if (e.candidate) {
                   const target = document.getElementById('targetUserId').value;
                   if (target && ws && ws.readyState === WebSocket.OPEN) {
+                    // Log detallado para diagnóstico de conectividad
+                    const candidateStr = e.candidate.candidate;
+                    const candidateType = candidateStr.includes('host') ? 'HOST' 
+                      : candidateStr.includes('srflx') ? 'SRFLX'
+                      : candidateStr.includes('relay') ? 'RELAY' : 'UNKNOWN';
+                    
+                    // Contar tipos de candidates
+                    if (candidateType === 'HOST') hostCandidates++;
+                    else if (candidateType === 'SRFLX') srflxCandidates++;
+                    else if (candidateType === 'RELAY') relayCandidates++;
+                    
+                    log(`🧊 ICE candidate (${candidateType}) sent: ${candidateStr.substring(0, 50)}...`);
+                    
                     ws.send(JSON.stringify({ type: 'ice', to: target, candidate: e.candidate }));
-                    log('🧊 ICE candidate sent');
+                  }
+                } else {
+                  log(`🧊 ICE gathering completed - HOST: ${hostCandidates}, SRFLX: ${srflxCandidates}, RELAY: ${relayCandidates}`);
+                  
+                  // Diagnóstico crítico: Si solo tienes HOST candidates, la conexión entre máquinas diferentes fallará
+                  if (srflxCandidates === 0 && relayCandidates === 0) {
+                    log(`⚠️ WARNING: No SRFLX or RELAY candidates generated! Connection between different machines will likely fail.`);
+                    log(`⚠️ This usually indicates STUN server connectivity issues or restrictive firewall.`);
                   }
                 }
               };
@@ -129,6 +208,37 @@
               };
               pc.onconnectionstatechange = () => {
                 log(`🔗 PC state: ${pc.connectionState}`);
+                if (pc.connectionState === 'connected') {
+                  log('🎉 WebRTC connection established successfully!');
+                } else if (pc.connectionState === 'failed') {
+                  log('❌ WebRTC connection failed - usually indicates NAT/firewall issues');
+                  log('❌ Possible causes:');
+                  log('   - Both devices behind symmetric NAT');
+                  log('   - STUN servers not reachable');
+                  log('   - Firewall blocking UDP traffic');
+                  log('   - Need TURN server for relay');
+                } else if (pc.connectionState === 'disconnected') {
+                  log('⚠️ WebRTC connection disconnected');
+                } else if (pc.connectionState === 'connecting') {
+                  log('🔄 Attempting WebRTC connection...');
+                  // Set timeout for connecting state
+                  setTimeout(() => {
+                    if (pc.connectionState === 'connecting') {
+                      log('⏰ Connection timeout: Still connecting after 15 seconds');
+                      log('⏰ This usually indicates ICE candidates are not sufficient for NAT traversal');
+                    }
+                  }, 15000);
+                }
+              };
+              
+              // Agregar logging de ICE connection state
+              pc.oniceconnectionstatechange = () => {
+                log(`🧊 ICE state: ${pc.iceConnectionState}`);
+                if (pc.iceConnectionState === 'failed') {
+                  log('❌ ICE connection failed - NAT/firewall blocking connection');
+                } else if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+                  log('🎉 ICE connection established!');
+                }
               };
 
               // Get local media (respect voice-only choice)
@@ -236,7 +346,14 @@
                 }
                 
                 await pc.addIceCandidate(candidateObj);
-                log('🧊 ICE candidate added');
+                
+                // Log detallado del candidate recibido para diagnóstico
+                const candidateStr = candidateObj.candidate;
+                const candidateType = candidateStr.includes('host') ? 'HOST' 
+                  : candidateStr.includes('srflx') ? 'SRFLX'
+                  : candidateStr.includes('relay') ? 'RELAY' : 'UNKNOWN';
+                
+                log(`🧊 ICE candidate added (${candidateType}): ${candidateStr.substring(0, 60)}...`);
               } catch (e) {
                 log(`❌ ICE error: ${e.message || e}`);
                 log(`❌ ICE details - msg.candidate: ${JSON.stringify(msg.candidate)}`);
