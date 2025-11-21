@@ -19,7 +19,8 @@ app.use(express.json());
 app.get("/health", (req, res) => res.json({ ok: true }));
 app.use("/api/auth", authRouter);
 app.use("/api/users", usersRouter);
-app.use("/api/ice-config", iceRouter);
+app.use("/api/ice-config", iceRouter); // Para compatibilidad con cliente web existente
+app.use("/api/ice", iceRouter);        // Para cliente Flutter
 app.use("/api/calls", callsRouter);
 app.use("/api/presence", presenceRouter);
 

@@ -60,6 +60,8 @@
         <script>
           let ws, pc, localStream;
           let currentCallId;
+          let usingTurnOnly = false; // Rastrear si estamos usando TURN-only
+          let retryAttempted = false; // Prevenir múltiples reintentos
           const API_BASE = 'https://ghox-server.onrender.com';
           const WS_BASE = 'wss://ghox-server.onrender.com/ws';
 
@@ -72,6 +74,213 @@
 
           function clearLogs() {
             document.getElementById('logs').innerHTML = '';
+          }
+
+          // Función para reintentar con TURN-only cuando falla la conexión
+          async function retryWithTurnOnly() {
+            if (usingTurnOnly || retryAttempted) {
+              log('🔄 Retry already attempted or using TURN-only, cannot retry again');
+              return;
+            }
+
+            try {
+              log('🔄 === RETRYING WITH TURN-ONLY ===');
+              usingTurnOnly = true;
+              retryAttempted = true;
+
+              // Cerrar peer connection actual
+              if (pc) {
+                pc.close();
+                pc = null;
+              }
+
+              let iceServers;
+              
+              try {
+                // Intentar obtener configuración TURN-only desde servidor
+                const jwt = document.getElementById('jwt').value;
+                const iceRes = await fetch(`${API_BASE}/api/ice/turn-only`, {
+                  headers: { Authorization: `Bearer ${jwt}` }
+                });
+                
+                if (iceRes.ok) {
+                  const data = await iceRes.json();
+                  iceServers = data.iceServers;
+                  log(`🧊 Got ${iceServers.length} TURN-only ICE servers from server`);
+                } else {
+                  throw new Error(`Server returned ${iceRes.status}`);
+                }
+              } catch (e) {
+                // Fallback a configuración TURN hardcoded si el servidor falla
+                log(`⚠️ Server TURN-only endpoint failed: ${e.message}`);
+                log('🔄 Using fallback TURN-only configuration...');
+                
+                iceServers = [
+                  // Solo servidores TURN para NAT restrictivo
+                  {
+                    urls: "turn:a.relay.metered.ca:80",
+                    username: "c6747f67ef7088cc93424ac1",
+                    credential: "uYSdYgb8ac9tRw6V"
+                  },
+                  {
+                    urls: "turn:a.relay.metered.ca:80?transport=tcp",
+                    username: "c6747f67ef7088cc93424ac1",
+                    credential: "uYSdYgb8ac9tRw6V"
+                  },
+                  {
+                    urls: "turn:a.relay.metered.ca:443",
+                    username: "c6747f67ef7088cc93424ac1",
+                    credential: "uYSdYgb8ac9tRw6V"
+                  },
+                  {
+                    urls: "turn:a.relay.metered.ca:443?transport=tcp",
+                    username: "c6747f67ef7088cc93424ac1",
+                    credential: "uYSdYgb8ac9tRw6V"
+                  },
+                  {
+                    urls: "turn:openrelay.metered.ca:80",
+                    username: "openrelayproject",
+                    credential: "openrelayproject"
+                  },
+                  {
+                    urls: "turn:openrelay.metered.ca:443",
+                    username: "openrelayproject",
+                    credential: "openrelayproject"
+                  },
+                  {
+                    urls: "turn:openrelay.metered.ca:443?transport=tcp",
+                    username: "openrelayproject",
+                    credential: "openrelayproject"
+                  }
+                ];
+                
+                log(`🧊 Using ${iceServers.length} fallback TURN servers`);
+              }
+
+              // Recrear peer connection con solo TURN servers
+              await createPeerConnection(iceServers);
+              
+              log('🔄 TURN-only retry completed - reconnecting...');
+              
+            } catch (e) {
+              log(`❌ TURN-only retry failed: ${e.message}`);
+            }
+          }
+
+          // Función para crear peer connection con configuración específica
+          async function createPeerConnection(iceServers) {
+            // Create peer connection with enhanced ICE gathering
+            pc = new RTCPeerConnection({ 
+              iceServers,
+              iceCandidatePoolSize: 10,  // Pre-gather more candidates
+              bundlePolicy: 'max-bundle',
+              rtcpMuxPolicy: 'require'
+            });
+
+            // Diagnóstico de tipos de candidates
+            let hostCandidates = 0, srflxCandidates = 0, relayCandidates = 0;
+            
+            pc.onicecandidate = e => {
+              if (e.candidate) {
+                const target = document.getElementById('targetUserId').value;
+                if (target && ws && ws.readyState === WebSocket.OPEN) {
+                  // Log detallado para diagnóstico de conectividad
+                  const candidateStr = e.candidate.candidate;
+                  const candidateType = candidateStr.includes('host') ? 'HOST' 
+                    : candidateStr.includes('srflx') ? 'SRFLX'
+                    : candidateStr.includes('relay') ? 'RELAY' : 'UNKNOWN';
+                  
+                  // Contar tipos de candidates
+                  if (candidateType === 'HOST') hostCandidates++;
+                  else if (candidateType === 'SRFLX') srflxCandidates++;
+                  else if (candidateType === 'RELAY') relayCandidates++;
+                  
+                  log(`🧊 ICE candidate (${candidateType}) sent: ${candidateStr.substring(0, 50)}...`);
+                  
+                  ws.send(JSON.stringify({ type: 'ice', to: target, candidate: e.candidate }));
+                }
+              } else {
+                log(`🧊 ICE gathering completed - HOST: ${hostCandidates}, SRFLX: ${srflxCandidates}, RELAY: ${relayCandidates}`);
+                
+                // Diagnóstico crítico: Si solo tienes HOST candidates, la conexión entre máquinas diferentes fallará
+                if (srflxCandidates === 0 && relayCandidates === 0) {
+                  log(`⚠️ WARNING: No SRFLX or RELAY candidates generated! Connection between different machines will likely fail.`);
+                  log(`⚠️ This usually indicates STUN server connectivity issues or restrictive firewall.`);
+                }
+              }
+            };
+
+            pc.ontrack = e => {
+              const stream = e.streams[0];
+              const hasVideo = stream.getVideoTracks && stream.getVideoTracks().length > 0;
+              if (hasVideo) {
+                document.getElementById('remoteVideo').srcObject = stream;
+                document.getElementById('remoteVideo').style.display = 'inline-block';
+                document.getElementById('remoteAudio').style.display = 'none';
+                log('📹 Remote video stream received');
+              } else {
+                document.getElementById('remoteAudio').srcObject = stream;
+                document.getElementById('remoteVideo').style.display = 'none';
+                log('🎧 Remote audio stream received');
+              }
+            };
+
+            pc.onconnectionstatechange = () => {
+              log(`🔗 PC state: ${pc.connectionState}`);
+              if (pc.connectionState === 'connected') {
+                log('🎉 WebRTC connection established successfully!');
+              } else if (pc.connectionState === 'failed') {
+                log('❌ WebRTC connection failed - usually indicates NAT/firewall issues');
+                log('❌ Possible causes:');
+                log('   - Both devices behind symmetric NAT');
+                log('   - STUN servers not reachable');
+                log('   - Firewall blocking UDP traffic');
+                log('   - Need TURN server for relay');
+                
+                // *** REINTENTO AUTOMÁTICO CON TURN-ONLY ***
+                if (!usingTurnOnly && !retryAttempted) {
+                  log('🔄 Auto-retrying with TURN-only configuration...');
+                  retryWithTurnOnly();
+                }
+              } else if (pc.connectionState === 'disconnected') {
+                log('⚠️ WebRTC connection disconnected');
+              } else if (pc.connectionState === 'connecting') {
+                log('🔄 Attempting WebRTC connection...');
+                // Set timeout for connecting state
+                setTimeout(() => {
+                  if (pc.connectionState === 'connecting') {
+                    log('⏰ Connection timeout: Still connecting after 15 seconds');
+                    log('⏰ This usually indicates ICE candidates are not sufficient for NAT traversal');
+                  }
+                }, 15000);
+              }
+            };
+            
+            // Agregar logging de ICE connection state con reintento automático
+            pc.oniceconnectionstatechange = () => {
+              log(`🧊 ICE state: ${pc.iceConnectionState}`);
+              if (pc.iceConnectionState === 'failed') {
+                log('❌ ICE connection failed - NAT/firewall blocking connection');
+                
+                // *** REINTENTO AUTOMÁTICO CON TURN-ONLY ***
+                if (!usingTurnOnly && !retryAttempted) {
+                  log('🔄 Auto-retrying with TURN-only configuration...');
+                  retryWithTurnOnly();
+                }
+              } else if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+                log('🎉 ICE connection established!');
+              }
+            };
+
+            // Get local media (respect voice-only choice)
+            const voiceOnly = document.getElementById('voiceOnlyMode').checked;
+            localStream = await navigator.mediaDevices.getUserMedia({ 
+              audio: true, 
+              video: voiceOnly ? false : { width: 640, height: 480 } 
+            });
+            document.getElementById('localVideo').srcObject = localStream;
+            localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+            log('📹 Local media added');
           }
 
           async function testConnectivity() {
@@ -139,114 +348,26 @@
             if (!jwt || !myUserId) return log('❌ Missing JWT or userId');
 
             try {
+              // Reset retry state for new connection
+              usingTurnOnly = false;
+              retryAttempted = false;
+
               // Test básico de conectividad de red
               log('🌐 Testing network connectivity...');
               const testResponse = await fetch('https://httpbin.org/ip');
               const ipInfo = await testResponse.json();
               log(`🌐 Client public IP: ${ipInfo.origin}`);
               
-              // Get ICE servers
-              const iceRes = await fetch(`${API_BASE}/api/ice-config`, {
+              // Get ICE servers (normal configuration first)
+              const iceEndpoint = usingTurnOnly ? '/api/ice/turn-only' : '/api/ice-config';
+              const iceRes = await fetch(`${API_BASE}${iceEndpoint}`, {
                 headers: { Authorization: `Bearer ${jwt}` }
               });
               const { iceServers } = await iceRes.json();
-              log(`🧊 Got ${iceServers.length} ICE servers`);
+              log(`🧊 Got ${iceServers.length} ICE servers${usingTurnOnly ? ' (TURN-only)' : ''}`);
 
-              // Create peer connection with enhanced ICE gathering
-              pc = new RTCPeerConnection({ 
-                iceServers,
-                iceCandidatePoolSize: 10,  // Pre-gather more candidates
-                bundlePolicy: 'max-bundle',
-                rtcpMuxPolicy: 'require'
-              });
-              // Diagnóstico de tipos de candidates
-              let hostCandidates = 0, srflxCandidates = 0, relayCandidates = 0;
-              
-              pc.onicecandidate = e => {
-                if (e.candidate) {
-                  const target = document.getElementById('targetUserId').value;
-                  if (target && ws && ws.readyState === WebSocket.OPEN) {
-                    // Log detallado para diagnóstico de conectividad
-                    const candidateStr = e.candidate.candidate;
-                    const candidateType = candidateStr.includes('host') ? 'HOST' 
-                      : candidateStr.includes('srflx') ? 'SRFLX'
-                      : candidateStr.includes('relay') ? 'RELAY' : 'UNKNOWN';
-                    
-                    // Contar tipos de candidates
-                    if (candidateType === 'HOST') hostCandidates++;
-                    else if (candidateType === 'SRFLX') srflxCandidates++;
-                    else if (candidateType === 'RELAY') relayCandidates++;
-                    
-                    log(`🧊 ICE candidate (${candidateType}) sent: ${candidateStr.substring(0, 50)}...`);
-                    
-                    ws.send(JSON.stringify({ type: 'ice', to: target, candidate: e.candidate }));
-                  }
-                } else {
-                  log(`🧊 ICE gathering completed - HOST: ${hostCandidates}, SRFLX: ${srflxCandidates}, RELAY: ${relayCandidates}`);
-                  
-                  // Diagnóstico crítico: Si solo tienes HOST candidates, la conexión entre máquinas diferentes fallará
-                  if (srflxCandidates === 0 && relayCandidates === 0) {
-                    log(`⚠️ WARNING: No SRFLX or RELAY candidates generated! Connection between different machines will likely fail.`);
-                    log(`⚠️ This usually indicates STUN server connectivity issues or restrictive firewall.`);
-                  }
-                }
-              };
-              pc.ontrack = e => {
-                const stream = e.streams[0];
-                const hasVideo = stream.getVideoTracks && stream.getVideoTracks().length > 0;
-                if (hasVideo) {
-                  document.getElementById('remoteVideo').srcObject = stream;
-                  document.getElementById('remoteVideo').style.display = 'inline-block';
-                  document.getElementById('remoteAudio').style.display = 'none';
-                  log('📹 Remote video stream received');
-                } else {
-                  document.getElementById('remoteAudio').srcObject = stream;
-                  document.getElementById('remoteAudio').style.display = 'block';
-                  document.getElementById('remoteVideo').style.display = 'none';
-                  log('🎧 Remote audio stream received');
-                }
-              };
-              pc.onconnectionstatechange = () => {
-                log(`🔗 PC state: ${pc.connectionState}`);
-                if (pc.connectionState === 'connected') {
-                  log('🎉 WebRTC connection established successfully!');
-                } else if (pc.connectionState === 'failed') {
-                  log('❌ WebRTC connection failed - usually indicates NAT/firewall issues');
-                  log('❌ Possible causes:');
-                  log('   - Both devices behind symmetric NAT');
-                  log('   - STUN servers not reachable');
-                  log('   - Firewall blocking UDP traffic');
-                  log('   - Need TURN server for relay');
-                } else if (pc.connectionState === 'disconnected') {
-                  log('⚠️ WebRTC connection disconnected');
-                } else if (pc.connectionState === 'connecting') {
-                  log('🔄 Attempting WebRTC connection...');
-                  // Set timeout for connecting state
-                  setTimeout(() => {
-                    if (pc.connectionState === 'connecting') {
-                      log('⏰ Connection timeout: Still connecting after 15 seconds');
-                      log('⏰ This usually indicates ICE candidates are not sufficient for NAT traversal');
-                    }
-                  }, 15000);
-                }
-              };
-              
-              // Agregar logging de ICE connection state
-              pc.oniceconnectionstatechange = () => {
-                log(`🧊 ICE state: ${pc.iceConnectionState}`);
-                if (pc.iceConnectionState === 'failed') {
-                  log('❌ ICE connection failed - NAT/firewall blocking connection');
-                } else if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
-                  log('🎉 ICE connection established!');
-                }
-              };
-
-              // Get local media (respect voice-only choice)
-              const voiceOnly = document.getElementById('voiceOnlyMode').checked;
-              localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: voiceOnly ? false : { width: 640, height: 480 } });
-              document.getElementById('localVideo').srcObject = localStream;
-              localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-              log('📹 Local media added');
+              // Create peer connection using our centralized function
+              await createPeerConnection(iceServers);
 
               // Connect WebSocket (token in query param)
               ws = new WebSocket(`${WS_BASE}?token=${jwt}`);
