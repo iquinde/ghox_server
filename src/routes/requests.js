@@ -110,8 +110,12 @@ router.patch("/:id", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: "Solicitud no encontrada" });
     }
 
-    if (status !== "pending" && request.to !== userId) {
-      return res.status(403).json({ error: "No tienes permiso para actualizar esta solicitud, solo el receptor puede aceptar/rechazar/cancelar" });
+    if ((status !== "pending" || status !== "cancelled" ) && request.to !== userId) {
+      return res.status(403).json({ error: "No tienes permiso para actualizar esta solicitud, solo el receptor puede aceptar/rechazar" });
+    }
+
+    if (status == "cancelled" && request.from !== userId) {
+      return res.status(403).json({ error: "No tienes permiso para actualizar esta solicitud, solo el emisor la puede cancelar" });
     }
 
     // Actualizar estado
