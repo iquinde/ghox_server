@@ -111,11 +111,11 @@ router.patch("/:id", authMiddleware, async (req, res) => {
     }
 
     if ((status !== "pending" || status !== "cancelled" ) && request.to !== userId) {
-      return res.status(403).json({ error: "No tienes permiso para actualizar esta solicitud, solo el receptor puede aceptar/rechazar" });
+      return res.status(403).json({ error: "No tienes permiso para actualizar aceptar/rechazar esta solicitud." });
     }
 
     if (status == "cancelled" && request.from !== userId) {
-      return res.status(403).json({ error: "No tienes permiso para actualizar esta solicitud, solo el emisor la puede cancelar" });
+      return res.status(403).json({ error: "No tienes permiso para cancelar esta solicitud, solo el emisor la puede cancelar" });
     }
 
     // Actualizar estado
