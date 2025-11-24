@@ -29,16 +29,33 @@ router.post("/",authMiddleware, async (req, res) => {
       });
     }
 
-    const newRequest = new Request({
+    const existingCancelledRejectedRecRequest = await Request.findOne({
       from,
       to,
-      meta,
+      status: { $in: ["cancelled", "rejected"] }, 
     });
 
-    await newRequest.save();
+    let request;
+    if (existingCancelledRejectedRecRequest) {
+      // 👇 Actualizamos el registro existente
+      existingCancelledRejectedRecRequest.status = "pending";
+      existingCancelledRejectedRecRequest.meta = meta;
+      await existingCancelledRejectedRecRequest.save();
+      request = existingCancelledRejectedRecRequest;
+    } else {
+      const newRequest = new Request({
+        from,
+        to,
+        meta,
+        status: "pending",
+      });
+      await newRequest.save();
+      request = newRequest;
+    }
+
 
     // 👇 Ajustamos la respuesta al esquema de Swagger
-    res.status(201).json({ request: newRequest });
+    res.status(201).json({ request: request });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Error interno del servidor" });
