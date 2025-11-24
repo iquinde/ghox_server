@@ -6,7 +6,7 @@ import { authRouter } from "./routes/auth.js";
 import { usersRouter } from "./routes/users.js";
 import { iceRouter } from "./routes/ice.js";
 import http from "http";
-import { initSignaling } from "./routes/signaling.js";
+import { initSignaling } from "./signaling.js";
 import { callsRouter } from "./routes/calls.js";
 import swaggerUi from "swagger-ui-express";
 import { requestsRouter } from "./routes/requests.js";
