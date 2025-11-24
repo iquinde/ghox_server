@@ -110,7 +110,7 @@ router.patch("/:id", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: "Solicitud no encontrada" });
     }
 
-    if ((status !== "pending" || status !== "cancelled" ) && request.to !== userId) {
+    if ((status == "accepted" || status == "rejected" ) && request.to !== userId) {
       return res.status(403).json({ error: "No tienes permiso para actualizar aceptar/rechazar esta solicitud." });
     }
 
