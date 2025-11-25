@@ -37,7 +37,7 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.get("/health", (req, res) => res.json({ ok: true }));
 app.use("/api/auth", authRouter);
 app.use("/api/users", usersRouter);
-//app.use("/api/ice-config", iceRouter);
+app.use("/api/ice-config", iceRouter);
 app.use("/api/calls", callsRouter);
 app.use("/api/requests", requestsRouter);
 
