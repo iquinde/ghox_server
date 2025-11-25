@@ -1,33 +1,32 @@
 import { WebSocketServer } from "ws";
 import jwt from "jsonwebtoken";
+import { WebRTCCache } from "./config/database.js";
 import { Call } from "./models/Call.js";
 
 export const userSockets = new Map(); // userId -> ws
-export const userPresence = new Map(); // userId -> { status, lastSeen, displayName }
+export const activeCalls = new Map();  // callId -> {from, to, startTime}
 
 function generateCallId() {
   return `call_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-// Broadcast presence change to all connected users
-function broadcastPresenceUpdate(userId, status, displayName) {
-  const presenceUpdate = {
-    type: "presence-update",
-    userId,
-    status, // 'online' | 'offline'
-    displayName,
-    timestamp: new Date().toISOString()
-  };
+// 🔒 Validar que el SDP contiene configuración SRTP/DTLS
+function validateSecureSDP(sdp) {
+  if (!sdp) return false;
+  
+  // Verificar que DTLS esté presente (requerido para SRTP)
+  const hasDtls = sdp.includes('a=setup:') && sdp.includes('a=fingerprint:');
+  const hasEncryption = sdp.includes('a=crypto:') || sdp.includes('DTLS');
+  
+  return hasDtls || hasEncryption;
+}
 
-  userSockets.forEach((ws, connectedUserId) => {
-    if (connectedUserId !== userId && ws.readyState === ws.OPEN) {
-      try {
-        ws.send(JSON.stringify(presenceUpdate));
-      } catch (e) {
-        console.warn("Failed to send presence update", e);
-      }
-    }
-  });
+// 🛡️ Logs de seguridad para debugging
+function logSecurityStatus(type, data, fromId) {
+  if (type === 'offer' || type === 'answer') {
+    const isSecure = validateSecureSDP(data.sdp);
+    console.log(`🔒 ${type.toUpperCase()} de ${fromId}: ${isSecure ? '✅ SRTP/DTLS' : '⚠️ No cifrado'}`);
+  }
 }
 
 export function initSignaling(server) {
@@ -37,41 +36,40 @@ export function initSignaling(server) {
     try {
       const url = new URL(req.url, `http://${req.headers.host}`);
       const token = url.searchParams.get("token");
-      if (!token) throw new Error("missing token");
+
+      if (!token) throw new Error("Token requerido");
 
       const payload = jwt.verify(token, process.env.JWT_SECRET);
       ws.user = payload;
       
-      // Store socket and presence
       userSockets.set(payload.userId, ws);
-      userPresence.set(payload.userId, {
-        status: 'online',
-        lastSeen: new Date(),
-        displayName: payload.displayName || payload.username || 'Unknown'
+      console.log(`🔗 Usuario conectado: ${payload.userId}`);
+
+      // 🚀 Registrar en Redis cache
+      await WebRTCCache.setUserOnline(payload.userId, {
+        displayName: payload.displayName || payload.username,
+        connectedAt: new Date().toISOString()
       });
 
-      console.log("WS connected:", payload.userId);
-      
-      // Broadcast that user came online
-      broadcastPresenceUpdate(payload.userId, 'online', payload.displayName || payload.username);
-
-      // Send current online users to the newly connected user
-      const onlineUsers = Array.from(userPresence.entries())
-        .filter(([userId, presence]) => presence.status === 'online' && userId !== payload.userId)
-        .map(([userId, presence]) => ({
-          userId,
-          status: presence.status,
-          displayName: presence.displayName,
-          lastSeen: presence.lastSeen
-        }));
-
+      // Enviar confirmación de conexión segura
       ws.send(JSON.stringify({
-        type: "presence-list",
-        users: onlineUsers
+        type: "connected",
+        userId: payload.userId,
+        encryption: "🔒 WebRTC SRTP activo",
+        storage: "📊 MongoDB + Redis",
+        timestamp: new Date().toISOString()
+      }));
+
+      // 👥 Enviar lista de usuarios online (desde Redis)
+      const onlineUsers = await WebRTCCache.getOnlineUsers();
+      ws.send(JSON.stringify({
+        type: "online-users",
+        users: onlineUsers.filter(id => id !== payload.userId),
+        count: onlineUsers.length - 1
       }));
 
     } catch (err) {
-      console.warn("WS auth failed:", err.message);
+      console.warn("❌ Auth failed:", err.message);
       try { ws.close(4001, "unauthorized"); } catch {}
       return;
     }
@@ -81,143 +79,328 @@ export function initSignaling(server) {
       try {
         data = JSON.parse(raw.toString());
       } catch {
-        return;
+        return ws.send(JSON.stringify({ type: "error", message: "JSON inválido" }));
       }
 
       const type = data.type;
       const fromId = ws.user?.userId;
 
-      // Handle presence updates (optional - for explicit status changes)
-      if (type === "presence-update") {
-        const status = data.status; // 'online' | 'away' | 'busy'
-        if (userPresence.has(fromId)) {
-          userPresence.get(fromId).status = status;
-          broadcastPresenceUpdate(fromId, status, userPresence.get(fromId).displayName);
-        }
-        return;
-      }
-
-      // Forward SDP/ICE to target if connected
+      // 🔒 Intercambio WebRTC con validación de seguridad
       if (["offer", "answer", "ice"].includes(type)) {
         const targetWs = userSockets.get(data.to);
-        if (targetWs && targetWs.readyState === targetWs.OPEN) {
-          targetWs.send(JSON.stringify({ ...data, from: fromId }));
-        } else {
-          ws.send(JSON.stringify({ type: "peer-offline", to: data.to }));
+        
+        if (!targetWs || targetWs.readyState !== targetWs.OPEN) {
+          return ws.send(JSON.stringify({ type: "peer-offline", to: data.to }));
         }
-        return;
-      }
 
-      // Call lifecycle
-      if (type === "call-init") {
-        const to = data.to;
-        const callId = generateCallId();
-        const call = await Call.create({
-          callId,
+        // Log de seguridad
+        logSecurityStatus(type, data, fromId);
+
+        // Cache ICE candidates en Redis (opcional)
+        if (type === 'ice') {
+          await WebRTCCache.cacheICECandidate(data.to, data.candidate);
+        }
+
+        // Reenviar mensaje con validación
+        const secureMessage = { 
+          ...data, 
           from: fromId,
-          to,
-          status: "ringing",
-          meta: data.meta || {},
-        });
+          encrypted: type === 'offer' || type === 'answer' ? validateSecureSDP(data.sdp) : true,
+          timestamp: new Date().toISOString()
+        };
 
-        const targetWs = userSockets.get(to);
-        if (targetWs && targetWs.readyState === targetWs.OPEN) {
-          targetWs.send(
-            JSON.stringify({
-              type: "incoming-call",
-              callId,
-              from: fromId,
-              meta: data.meta || {},
-            })
-          );
-        } else {
-          await Call.findByIdAndUpdate(call._id, {
-            status: "missed",
-            endedAt: new Date(),
+        targetWs.send(JSON.stringify(secureMessage));
+        return;
+      }
+
+      // 📞 Iniciación de llamada
+      if (type === "call-invite") {
+        const { to, callType = "audio" } = data;
+        const callId = generateCallId();
+        
+        try {
+          // 📊 Guardar en MongoDB
+          const call = new Call({
+            callId,
+            from: fromId,
+            to,
+            callType,
+            status: "ringing",
+            encrypted: true, // SRTP siempre activo
+            startedAt: new Date()
           });
-          ws.send(JSON.stringify({ type: "call-missed", callId }));
+          await call.save();
+
+          // ⚡ Cache en Redis
+          await WebRTCCache.storeActiveCall(callId, { from: fromId, to, callType });
+          await WebRTCCache.incrementCallStats();
+          
+          activeCalls.set(callId, {
+            from: fromId,
+            to,
+            callType,
+            startTime: Date.now(),
+            status: "ringing"
+          });
+
+          const targetWs = userSockets.get(to);
+          if (!targetWs || targetWs.readyState !== targetWs.OPEN) {
+            // Usuario offline, actualizar estado
+            call.status = "missed";
+            call.endedAt = new Date();
+            await call.save();
+            
+            await WebRTCCache.removeActiveCall(callId);
+            activeCalls.delete(callId);
+            
+            return ws.send(JSON.stringify({ type: "user-offline", to }));
+          }
+
+          targetWs.send(JSON.stringify({
+            type: "incoming-call",
+            callId,
+            from: fromId,
+            callType,
+            encryption: "🔒 SRTP habilitado",
+            timestamp: new Date().toISOString()
+          }));
+
+          console.log(`📞 Llamada ${callId}: ${fromId} -> ${to} (${callType}) [MongoDB + Redis]`);
+          
+        } catch (error) {
+          console.error("❌ Error guardando llamada:", error);
+          ws.send(JSON.stringify({ type: "error", message: "Error iniciando llamada" }));
         }
         return;
       }
 
+      // ✅ Aceptar llamada
       if (type === "call-accept") {
         const { callId } = data;
-        await Call.findOneAndUpdate({ callId }, { status: "in_call", startedAt: new Date() });
-        const originWs = userSockets.get(data.from);
-        if (originWs && originWs.readyState === originWs.OPEN) {
-          originWs.send(JSON.stringify({ type: "call-accepted", callId }));
+        
+        try {
+          // Actualizar MongoDB
+          const call = await Call.findOne({ callId });
+          if (call) {
+            call.status = "accepted";
+            call.acceptedAt = new Date();
+            await call.save();
+          }
+
+          // Actualizar cache
+          const callData = activeCalls.get(callId);
+          if (!callData) {
+            return ws.send(JSON.stringify({ type: "call-not-found", callId }));
+          }
+
+          callData.status = "accepted";
+          const originWs = userSockets.get(callData.from);
+          
+          if (originWs && originWs.readyState === originWs.OPEN) {
+            originWs.send(JSON.stringify({ 
+              type: "call-accepted", 
+              callId,
+              encryption: "🔒 Canal seguro establecido",
+              storage: "📊 Guardado en MongoDB"
+            }));
+          }
+
+          console.log(`✅ Llamada aceptada: ${callId} [Persistida]`);
+          
+        } catch (error) {
+          console.error("❌ Error aceptando llamada:", error);
         }
         return;
       }
 
+      // ❌ Rechazar llamada
       if (type === "call-reject") {
         const { callId } = data;
-        await Call.findOneAndUpdate({ callId }, { status: "rejected", endedAt: new Date() });
-        const originWs = userSockets.get(data.from);
-        if (originWs && originWs.readyState === originWs.OPEN) {
-          originWs.send(JSON.stringify({ type: "call-rejected", callId }));
+        
+        try {
+          // Actualizar MongoDB
+          const call = await Call.findOne({ callId });
+          if (call) {
+            call.status = "rejected";
+            call.endedAt = new Date();
+            await call.save();
+          }
+
+          // Limpiar cache
+          await WebRTCCache.removeActiveCall(callId);
+          const callData = activeCalls.get(callId);
+          
+          if (callData) {
+            activeCalls.delete(callId);
+            const originWs = userSockets.get(callData.from);
+            
+            if (originWs && originWs.readyState === originWs.OPEN) {
+              originWs.send(JSON.stringify({ type: "call-rejected", callId }));
+            }
+          }
+
+          console.log(`❌ Llamada rechazada: ${callId} [Persistida]`);
+          
+        } catch (error) {
+          console.error("❌ Error rechazando llamada:", error);
         }
         return;
       }
 
-      if (type === "hangup") {
+      // 📲 Finalizar llamada
+      if (type === "call-end") {
         const { callId, to } = data;
-        await Call.findOneAndUpdate({ callId }, { status: "ended", endedAt: new Date() });
-        const otherWs = userSockets.get(to);
-        if (otherWs && otherWs.readyState === otherWs.OPEN) {
-          otherWs.send(JSON.stringify({ type: "hangup", callId }));
+        
+        try {
+          // Actualizar MongoDB con duración
+          const call = await Call.findOne({ callId });
+          if (call) {
+            call.status = "completed";
+            call.endedAt = new Date();
+            call.duration = Math.round((call.endedAt - call.startedAt) / 1000); // segundos
+            await call.save();
+          }
+
+          // Limpiar cache
+          await WebRTCCache.removeActiveCall(callId);
+          const callData = activeCalls.get(callId);
+          
+          if (callData) {
+            const duration = ((Date.now() - callData.startTime) / 1000).toFixed(1);
+            console.log(`📲 Llamada finalizada: ${callId} (${duration}s) [Guardada]`);
+            activeCalls.delete(callId);
+          }
+
+          const otherWs = userSockets.get(to);
+          if (otherWs && otherWs.readyState === otherWs.OPEN) {
+            otherWs.send(JSON.stringify({ type: "call-ended", callId }));
+          }
+          
+        } catch (error) {
+          console.error("❌ Error finalizando llamada:", error);
         }
+        return;
+      }
+
+      // 💓 Keepalive con Redis
+      if (type === "ping") {
+        await WebRTCCache.setUserOnline(fromId); // Renovar TTL en Redis
+        ws.send(JSON.stringify({ 
+          type: "pong", 
+          timestamp: Date.now(),
+          cache: "Redis TTL renovado"
+        }));
+        return;
+      }
+
+      // 📊 Solicitar estadísticas
+      if (type === "get-stats") {
+        const stats = await WebRTCCache.getCallStats();
+        ws.send(JSON.stringify({
+          type: "stats-response",
+          ...stats,
+          redisCache: true,
+          mongoStorage: true
+        }));
         return;
       }
     });
 
-    ws.on("close", () => {
+    ws.on("close", async () => {
       if (ws.user?.userId) {
         const userId = ws.user.userId;
         userSockets.delete(userId);
         
-        // Update presence to offline
-        if (userPresence.has(userId)) {
-          userPresence.get(userId).status = 'offline';
-          userPresence.get(userId).lastSeen = new Date();
+        // 🚀 Limpiar presencia de Redis
+        await WebRTCCache.setUserOffline(userId);
+        
+        // Terminar llamadas activas del usuario
+        const userCalls = Array.from(activeCalls.entries())
+          .filter(([_, call]) => call.from === userId || call.to === userId);
+
+        for (const [callId, call] of userCalls) {
+          try {
+            // Actualizar MongoDB
+            const dbCall = await Call.findOne({ callId });
+            if (dbCall) {
+              dbCall.status = "interrupted";
+              dbCall.endedAt = new Date();
+              await dbCall.save();
+            }
+
+            // Notificar al otro usuario
+            const otherUserId = call.from === userId ? call.to : call.from;
+            const otherWs = userSockets.get(otherUserId);
+            
+            if (otherWs && otherWs.readyState === otherWs.OPEN) {
+              otherWs.send(JSON.stringify({ 
+                type: "call-ended", 
+                callId, 
+                reason: "user-disconnected" 
+              }));
+            }
+            
+            // Limpiar cache
+            await WebRTCCache.removeActiveCall(callId);
+            activeCalls.delete(callId);
+            console.log(`📲 Llamada ${callId} interrumpida por desconexión [Persistida]`);
+            
+          } catch (error) {
+            console.error("❌ Error limpiando llamada:", error);
+          }
         }
         
-        console.log("WS disconnected:", userId);
-        
-        // Broadcast that user went offline
-        broadcastPresenceUpdate(userId, 'offline', userPresence.get(userId)?.displayName);
+        console.log(`🔌 Usuario desconectado: ${userId} [Cache limpiado]`);
       }
     });
 
     ws.on("error", (err) => {
-      console.warn("WS error", err);
+      console.warn("⚠️ WebSocket error:", err.message);
     });
   });
 
-  console.log("✅ WebSocket signaling inicializado");
+  console.log("🚀 Señalización WebRTC iniciada - MongoDB + Redis + SRTP");
 }
 
-// notifyUser helper (WebSocket)
+// Helper: Notificar usuario por WebSocket
 export function notifyUser(userId, payload) {
   const ws = userSockets.get(userId);
-  if (!ws) return false;
-  try {
-    if (ws.readyState === ws.OPEN) {
+  if (ws && ws.readyState === ws.OPEN) {
+    try {
       ws.send(JSON.stringify(payload));
       return true;
+    } catch (e) {
+      console.warn("❌ Error notificando usuario:", e);
     }
-  } catch (e) {
-    console.warn("notifyUser error", e);
   }
   return false;
 }
 
-// Get current presence info
-export function getPresenceInfo() {
-  return Array.from(userPresence.entries()).map(([userId, presence]) => ({
-    userId,
-    status: presence.status,
-    displayName: presence.displayName,
-    lastSeen: presence.lastSeen
-  }));
+// Helper: Estadísticas combinadas (Redis + MongoDB + Memoria)
+export async function getCallStats() {
+  try {
+    // Stats de Redis (cache rápido)
+    const redisStats = await WebRTCCache.getCallStats();
+    
+    // Stats de memoria local
+    const memoryStats = {
+      activeConnections: userSockets.size,
+      activeCallsMemory: activeCalls.size
+    };
+
+    return {
+      ...redisStats,
+      ...memoryStats,
+      storage: "MongoDB + Redis",
+      encrypted: true // SRTP siempre activo
+    };
+  } catch (error) {
+    console.warn("❌ Error obteniendo stats:", error);
+    return {
+      activeCalls: activeCalls.size,
+      connectedUsers: userSockets.size,
+      storage: "Solo memoria",
+      encrypted: true
+    };
+  }
 }
