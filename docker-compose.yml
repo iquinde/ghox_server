@@ -1,91 +1,10 @@
-version: '3.8'
-
 services:
-  # 🏠 COTURN Server - TURN/STUN propio para conectividad universal
-  coturn:
-    image: coturn/coturn:4.6.2-r3
-    container_name: ghox_coturn
-    restart: unless-stopped
-    volumes:
-      - ./coturn.conf:/etc/coturn/turnserver.conf:ro
-      - coturn_logs:/var/log/coturn
-    command: ["-c", "/etc/coturn/turnserver.conf"]
-    ports:
-      - "3478:3478/udp"     # STUN/TURN UDP
-      - "3478:3478/tcp"     # STUN/TURN TCP  
-      - "5349:5349/tcp"     # TURNS (TURN over TLS)
-      - "5349:5349/udp"     # TURNS UDP
-    environment:
-      - COTURN_REALM=ghox.p2p
-      - COTURN_USER=ghox_user
-      - COTURN_PASSWORD=ghox_secure_password_2024
-
-  # 📊 MongoDB para persistencia de llamadas y usuarios
-  mongodb:
-    image: mongo:7.0
-    container_name: ghox_mongodb
-    restart: unless-stopped
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ghox
-      MONGO_INITDB_ROOT_PASSWORD: ghox123
-      MONGO_INITDB_DATABASE: ghox_webrtc
-    volumes:
-      - mongodb_data:/data/db
-      - ./mongo-init:/docker-entrypoint-initdb.d
+  mongo:
+    image: mongo:7
     ports:
       - "27017:27017"
-    networks:
-      - ghox_network
-
-  # ⚡ Redis para cache de sesiones y presencia  
-  redis:
-    image: redis:7.2-alpine
-    container_name: ghox_redis
-    restart: unless-stopped
-    command: redis-server --requirepass ghox123 --maxmemory 256mb --maxmemory-policy allkeys-lru
-    volumes:
-      - redis_data:/data
-    ports:
-      - "6379:6379"
-    networks:
-      - ghox_network
-
-  # 🚀 Ghox P2P Voice Server - WebRTC + SRTP + COTURN
-  ghox_server:
-    build: .
-    container_name: ghox_webrtc_server
-    restart: unless-stopped
     environment:
-      NODE_ENV: production
-      JWT_SECRET: Ghox01_Production_Secret
-      MONGO_URI: mongodb://ghox:ghox123@mongodb:27017/ghox_webrtc?authSource=admin
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ghox123
-      COTURN_URL: localhost  # Usar COTURN local
-      COTURN_USERNAME: ghox_user
-      COTURN_PASSWORD: ghox_secure_password_2024
-      USE_SSL: true
-      PORT: 8080
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: adminpassword
     volumes:
-      - ./ssl:/app/ssl:ro
-    ports:
-      - "8080:8080"
-    depends_on:
-      - mongodb
-      - redis
-      - coturn
-    networks:
-      - ghox_network
-
-volumes:
-  mongodb_data:
-    driver: local
-  redis_data:
-    driver: local
-  coturn_logs:
-    driver: local
-
-networks:
-  ghox_network:
-    driver: bridge
+      - ./mongo-init:/docker-entrypoint-initdb.d

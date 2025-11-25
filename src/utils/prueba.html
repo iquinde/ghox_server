@@ -42,19 +42,6 @@
             <button onclick="acceptCall()">✅ Accept Call</button>
             <button onclick="hangup()">❌ Hangup</button>
           </div>
-          <div style="margin-top:8px; padding:8px; background:#f0f0f0; border-radius:4px">
-            <strong>🟢 Presence Controls:</strong>
-            <select id="presenceStatus" onchange="updatePresenceStatus()">
-              <option value="online">🟢 Online</option>
-              <option value="away">🟡 Away</option>
-              <option value="busy">🔴 Busy</option>
-              <option value="invisible">👻 Invisible</option>
-              <option value="offline">⚫ Offline</option>
-            </select>
-            <input id="statusMessage" placeholder="Status message (optional)" style="margin-left:8px; width:200px">
-            <button onclick="getPresenceList()">📋 Get Presence</button>
-            <button onclick="getOnlineUsers()">👥 Online Users</button>
-          </div>
         </div>
 
         <div class="section">
@@ -75,10 +62,6 @@
           let currentCallId;
           let usingTurnOnly = false; // Rastrear si estamos usando TURN-only
           let retryAttempted = false; // Prevenir múltiples reintentos
-          
-          // Diagnóstico de tipos de candidates - mantener como globales para evitar resets
-          let hostCandidates = 0, srflxCandidates = 0, relayCandidates = 0;
-          
           const API_BASE = 'https://ghox-server.onrender.com';
           const WS_BASE = 'wss://ghox-server.onrender.com/ws';
 
@@ -105,11 +88,6 @@
               usingTurnOnly = true;
               retryAttempted = true;
 
-              // Reset ICE candidate counters for retry
-              hostCandidates = 0;
-              srflxCandidates = 0; 
-              relayCandidates = 0;
-              
               // Cerrar peer connection actual
               if (pc) {
                 pc.close();
@@ -173,17 +151,6 @@
                     urls: "turn:openrelay.metered.ca:443?transport=tcp",
                     username: "openrelayproject",
                     credential: "openrelayproject"
-                  },
-                  // Servidores TURN adicionales como respaldo
-                  {
-                    urls: "turn:numb.viagenie.ca",
-                    username: "webrtc@live.com",
-                    credential: "muazkh"
-                  },
-                  {
-                    urls: "turn:numb.viagenie.ca:3478",
-                    username: "webrtc@live.com",
-                    credential: "muazkh"
                   }
                 ];
                 
@@ -206,9 +173,12 @@
             pc = new RTCPeerConnection({ 
               iceServers,
               iceCandidatePoolSize: 10,  // Pre-gather more candidates
-              bundlePolicy: 'balanced',  // Changed from max-bundle to balanced for compatibility
+              bundlePolicy: 'max-bundle',
               rtcpMuxPolicy: 'require'
             });
+
+            // Diagnóstico de tipos de candidates
+            let hostCandidates = 0, srflxCandidates = 0, relayCandidates = 0;
             
             pc.onicecandidate = e => {
               if (e.candidate) {
@@ -276,21 +246,13 @@
                 log('⚠️ WebRTC connection disconnected');
               } else if (pc.connectionState === 'connecting') {
                 log('🔄 Attempting WebRTC connection...');
-                // Set timeout for connecting state - increased for cross-network stability
+                // Set timeout for connecting state
                 setTimeout(() => {
                   if (pc.connectionState === 'connecting') {
-                    log('⏰ Connection timeout: Still connecting after 45 seconds');
+                    log('⏰ Connection timeout: Still connecting after 15 seconds');
                     log('⏰ This usually indicates ICE candidates are not sufficient for NAT traversal');
-                    
-                    // Try TURN-only if not already using it
-                    if (!usingTurnOnly) {
-                      log('🔄 Auto-retry with TURN-only due to connection timeout...');
-                      retryWithTurnOnly();
-                    } else {
-                      log('❌ Connection definitely failed - already using TURN-only');
-                    }
                   }
-                }, 45000);
+                }, 15000);
               }
             };
             
@@ -307,28 +269,6 @@
                 }
               } else if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
                 log('🎉 ICE connection established!');
-                
-                // Start keepalive mechanism to maintain connection stability
-                if (window.keepaliveInterval) {
-                  clearInterval(window.keepaliveInterval);
-                }
-                window.keepaliveInterval = setInterval(() => {
-                  if (pc && pc.iceConnectionState === 'connected') {
-                    // Send small keepalive data to maintain connection
-                    try {
-                      if (pc.getStats) {
-                        pc.getStats().then(() => {
-                          // Stats call serves as keepalive
-                          log('💓 Connection keepalive');
-                        }).catch(e => {
-                          log(`⚠️ Keepalive failed: ${e.message}`);
-                        });
-                      }
-                    } catch (e) {
-                      log(`⚠️ Keepalive error: ${e.message}`);
-                    }
-                  }
-                }, 30000); // Every 30 seconds
               }
             };
 
@@ -355,81 +295,31 @@
               log(`❌ Internet connectivity test failed: ${e.message}`);
               return;
             }
-
-            // Test 2: API Server connectivity
-            try {
-              log('🔗 Testing API server...');
-              const apiResp = await fetch(`${API_BASE}/health`, { timeout: 5000 });
-              if (apiResp.ok) {
-                log(`✅ API server reachable`);
-              } else {
-                log(`⚠️ API server returned ${apiResp.status}`);
-              }
-            } catch (e) {
-              log(`❌ API server unreachable: ${e.message}`);
-            }
-
-            // Test 3: ICE config availability
-            try {
-              log('🧊 Testing ICE configuration...');
-              const iceResp = await fetch(`${API_BASE}/api/ice-config`, { timeout: 5000 });
-              if (iceResp.ok) {
-                const iceData = await iceResp.json();
-                log(`✅ ICE config available: ${iceData.iceServers?.length || 0} servers`);
-                
-                // Log TURN servers specifically
-                const turnServers = iceData.iceServers?.filter(server => 
-                  server.urls.includes('turn:') || Array.isArray(server.urls) && server.urls.some(url => url.includes('turn:'))
-                ) || [];
-                log(`🔄 TURN servers available: ${turnServers.length}`);
-                
-              } else {
-                log(`⚠️ ICE config returned ${iceResp.status}`);
-              }
-            } catch (e) {
-              log(`❌ ICE config failed: ${e.message}`);
-            }
             
-            // Test 4: STUN server connectivity
             try {
+              // Test 2: STUN server connectivity
               log('🧊 Testing STUN servers...');
               const stunTest = new RTCPeerConnection({ 
-                iceServers: [
-                  { urls: 'stun:stun.l.google.com:19302' },
-                  { urls: 'stun:stun1.l.google.com:19302' },
-                  { urls: 'stun:stun.services.mozilla.com' }
-                ]
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] 
               });
               
               let candidateCount = 0;
-              let hostCandidates = 0, srflxCandidates = 0, relayCandidates = 0;
-              
               stunTest.onicecandidate = (e) => {
                 if (e.candidate) {
                   candidateCount++;
-                  const candidateStr = e.candidate.candidate;
-                  
-                  if (candidateStr.includes('host')) {
-                    hostCandidates++;
-                  } else if (candidateStr.includes('srflx')) {
-                    srflxCandidates++;
-                  } else if (candidateStr.includes('relay')) {
-                    relayCandidates++;
-                  }
-                  
-                  log(`🧊 Found candidate: ${candidateStr.substring(0, 60)}...`);
+                  const type = e.candidate.candidate.includes('host') ? 'HOST'
+                    : e.candidate.candidate.includes('srflx') ? 'SRFLX' 
+                    : e.candidate.candidate.includes('relay') ? 'RELAY' : 'UNKNOWN';
+                  log(`🧊 STUN test candidate ${candidateCount}: ${type}`);
                 } else {
-                  log(`🧊 ICE gathering complete: HOST=${hostCandidates}, SRFLX=${srflxCandidates}, RELAY=${relayCandidates}`);
-                  
-                  if (srflxCandidates === 0 && relayCandidates === 0) {
-                    log(`⚠️ WARNING: No SRFLX/RELAY candidates - NAT traversal will fail`);
-                  } else {
-                    log(`✅ NAT traversal candidates available`);
-                  }
+                  log(`✅ STUN test complete - Generated ${candidateCount} candidates`);
+                  stunTest.close();
                 }
               };
               
+              // Trigger ICE gathering
               await stunTest.createOffer();
+              
             } catch (e) {
               log(`❌ STUN test failed: ${e.message}`);
             }
@@ -461,13 +351,6 @@
               // Reset retry state for new connection
               usingTurnOnly = false;
               retryAttempted = false;
-              
-              // Reset ICE candidate counters for new connection
-              hostCandidates = 0;
-              srflxCandidates = 0; 
-              relayCandidates = 0;
-              
-              log('🔄 State reset for new connection');
 
               // Test básico de conectividad de red
               log('🌐 Testing network connectivity...');
@@ -606,37 +489,6 @@
             if (msg.type === 'peer-offline') {
               log(`❌ Peer ${msg.to} is offline`);
             }
-
-            // Handle presence updates
-            if (msg.type === 'presence-update') {
-              const statusEmoji = msg.status === 'online' ? '🟢' : 
-                                 msg.status === 'away' ? '🟡' : 
-                                 msg.status === 'busy' ? '🔴' : 
-                                 msg.status === 'invisible' ? '👻' : '⚫';
-              log(`${statusEmoji} ${msg.displayName || msg.userId} is now ${msg.status}${msg.statusMessage ? ` (${msg.statusMessage})` : ''}`);
-            }
-
-            // Handle presence list (when connecting)
-            if (msg.type === 'presence-list') {
-              log(`👥 Online users (${msg.users.length}):`);
-              msg.users.forEach(user => {
-                const statusEmoji = user.status === 'online' ? '🟢' : 
-                                   user.status === 'away' ? '🟡' : 
-                                   user.status === 'busy' ? '🔴' : 
-                                   user.status === 'invisible' ? '👻' : '⚫';
-                log(`  ${statusEmoji} ${user.displayName || user.userId} (${user.status})`);
-              });
-            }
-
-            // Handle presence confirmation
-            if (msg.type === 'presence-updated') {
-              log(`✅ Your status updated to: ${msg.status}${msg.statusMessage ? ` (${msg.statusMessage})` : ''}`);
-            }
-
-            // Handle heartbeat response
-            if (msg.type === 'pong') {
-              log(`💓 Heartbeat acknowledged`);
-            }
           }
 
           async function startCall() {
@@ -648,28 +500,13 @@
             if (!pc) return log('❌ Connect first');
 
             try {
-              // Reset ICE candidate counters for new call
-              hostCandidates = 0;
-              srflxCandidates = 0; 
-              relayCandidates = 0;
-              log('🔄 ICE candidate counters reset for new call');
-              
               // Send call-init via WebSocket
               ws.send(JSON.stringify({ type: 'call-init', to: targetUserId, meta: { displayName: 'Test Call', from: document.getElementById('myUserId').value } }));
               log('📞 Call initiated via WebSocket');
 
-              // Wait a bit for ICE gathering to complete for better stability
-              log('⏱️ Waiting for ICE gathering to stabilize...');
-              await new Promise(resolve => setTimeout(resolve, 2000));
-
               // Create and send offer
               const offer = await pc.createOffer();
               await pc.setLocalDescription(offer);
-              log('📤 Offer created - waiting for ICE candidates...');
-              
-              // Another small delay to ensure ICE candidates are gathered
-              await new Promise(resolve => setTimeout(resolve, 1000));
-              
               ws.send(JSON.stringify({ type: 'offer', to: targetUserId, sdp: offer.sdp }));
               log('📤 Offer sent');
 
@@ -709,17 +546,12 @@
               localStream = null;
             }
 
-            // Reset variables de estado para permitir nuevas conexiones
-            usingTurnOnly = false;
-            retryAttempted = false;
-
             document.getElementById('localVideo').srcObject = null;
             document.getElementById('remoteVideo').srcObject = null;
             document.getElementById('remoteAudio').srcObject = null;
             currentCallId = null;
 
             log('❌ Call ended');
-            log('🔄 State reset - ready for new calls');
           }
 
           // Start voice-only call via REST endpoint then send offer over WS
@@ -789,105 +621,6 @@
               log('❌ startVoiceCall error: ' + (e.message || e));
             }
           }
-
-          // ==================== PRESENCE FUNCTIONS ====================
-          
-          async function updatePresenceStatus() {
-            const jwt = document.getElementById('jwt').value;
-            const status = document.getElementById('presenceStatus').value;
-            const message = document.getElementById('statusMessage').value;
-            
-            if (!jwt) return log('❌ JWT required for presence');
-            
-            try {
-              const response = await fetch(`${API_BASE}/api/presence/status`, {
-                method: 'PUT',
-                headers: {
-                  'Authorization': `Bearer ${jwt}`,
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                  status: status,
-                  message: message || null
-                })
-              });
-              
-              const data = await response.json();
-              if (response.ok) {
-                log(`✅ Status updated to: ${status}${message ? ` (${message})` : ''}`);
-                
-                // Also send via WebSocket if connected
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                  ws.send(JSON.stringify({
-                    type: 'presence-update',
-                    status: status,
-                    statusMessage: message || null
-                  }));
-                  log(`📡 Presence update sent via WebSocket`);
-                }
-              } else {
-                log(`❌ Failed to update status: ${data.error}`);
-              }
-            } catch (e) {
-              log(`❌ Error updating status: ${e.message}`);
-            }
-          }
-          
-          async function getPresenceList() {
-            const jwt = document.getElementById('jwt').value;
-            if (!jwt) return log('❌ JWT required for presence');
-            
-            try {
-              const response = await fetch(`${API_BASE}/api/presence`, {
-                headers: { 'Authorization': `Bearer ${jwt}` }
-              });
-              
-              const data = await response.json();
-              if (response.ok) {
-                log(`📋 Presence List (${data.presence.length} users):`);
-                data.presence.forEach(user => {
-                  const statusEmoji = user.status === 'online' ? '🟢' : 
-                                     user.status === 'away' ? '🟡' : 
-                                     user.status === 'busy' ? '🔴' : 
-                                     user.status === 'invisible' ? '👻' : '⚫';
-                  log(`  ${statusEmoji} ${user.displayName || user.userId} (${user.status})${user.isOnline ? ' [connected]' : ' [offline]'}`);
-                });
-              } else {
-                log(`❌ Failed to get presence: ${data.error}`);
-              }
-            } catch (e) {
-              log(`❌ Error getting presence: ${e.message}`);
-            }
-          }
-          
-          async function getOnlineUsers() {
-            const jwt = document.getElementById('jwt').value;
-            if (!jwt) return log('❌ JWT required for presence');
-            
-            try {
-              const response = await fetch(`${API_BASE}/api/presence/online`, {
-                headers: { 'Authorization': `Bearer ${jwt}` }
-              });
-              
-              const data = await response.json();
-              if (response.ok) {
-                log(`👥 Online Users (${data.count}):`);
-                data.users.forEach(user => {
-                  log(`  🟢 ${user.displayName || user.userId} (online)`);
-                });
-                
-                if (data.count === 0) {
-                  log('  No other users currently online');
-                }
-              } else {
-                log(`❌ Failed to get online users: ${data.error}`);
-              }
-            } catch (e) {
-              log(`❌ Error getting online users: ${e.message}`);
-            }
-          }
-
-          // ==================== END PRESENCE FUNCTIONS ====================
 
           // Auto-fill demo data
           window.addEventListener('load', () => {
