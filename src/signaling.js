@@ -98,7 +98,7 @@ export function initSignaling(server) {
         await Call.findOneAndUpdate({ callId }, { status: "rejected", endedAt: new Date() });
         const originWs = userSockets.get(data.from);
         if (originWs && originWs.readyState === originWs.OPEN) {
-          originWs.send(JSON.stringify({ type: "call-rejected", callId }));
+          originWs.send(JSON.stringify({ type: "call-reject", callId }));
         }
         return;
       }
