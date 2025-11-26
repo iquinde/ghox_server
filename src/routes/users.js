@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { authMiddleware } from "../middleware/auth.js";
 import { User } from "../models/User.js";
+import { Request } from "../models/Request.js";
 
 export const usersRouter = Router();
 
@@ -37,6 +38,35 @@ usersRouter.get("/", authMiddleware, async (req, res) => {
   const users = await User.find(filter, { userId: 1, username: 1, displayName: 1 }).lean();
   res.json({ users });
 });
+
+/** GET /api/users
+ * Devuelve todos los usuarios que tengo agregado a mi cuenta
+ */
+usersRouter.get("/usersaccount", authMiddleware, async (req, res) => {
+  try {
+    // Buscar requests donde el usuario actual sea 'from' o 'to'
+    const requests = await Request.find({
+      status: "accepted",
+      $or: [{ from: req.user.userId }, { to: req.user.userId }]
+    }).lean();
+
+    // Extraer todos los userIds involucrados
+    const userIds = requests.flatMap(r => [r.from, r.to]);
+
+    // Filtrar usuarios
+    const filter = { userId: { $in: userIds, $ne: req.user.userId } };
+    if (process.env.ADMIN_USERNAME) {
+      filter.username = { $ne: process.env.ADMIN_USERNAME };
+    }
+
+    const users = await User.find(filter, { userId: 1, username: 1, displayName: 1 }).lean();
+    res.json({ users });
+  } catch (err) {
+    console.error("❌ Error en /usersaccount:", err);
+    res.status(500).json({ error: "Error al obtener usuarios" });
+  }
+});
+
 
 /** GET /api/users/:id
  * Devuelve un usuario público por userId

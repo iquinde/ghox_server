@@ -233,6 +233,29 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/users/usersaccount:
+    get:
+      summary: Lista de usuarios que tengo agregado a mi cuenta
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Lista de usuarios que tenggo agregado a mi cuenta
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'  
   /api/users/{id}:
     get:
       summary: Obtener usuario público por id
