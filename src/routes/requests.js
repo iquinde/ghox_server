@@ -16,7 +16,7 @@ router.post("/",authMiddleware, async (req, res) => {
     // 👇 el "from" viene del token, no del body
     const from = req.user.userId;
 
-        // 🔎 Validar si ya existe una solicitud pendiente entre from y to
+    // 🔎 Validar si ya existe una solicitud pendiente entre from y to
     const existingRequest = await Request.findOne({
       from,
       to,
@@ -26,6 +26,18 @@ router.post("/",authMiddleware, async (req, res) => {
     if (existingRequest) {
       return res.status(400).json({
         error: "Ya existe una solicitud activa para este usuario",
+      });
+    }
+    // validar que ya exista una solicitud pendiente o aceptada en sentido contrario (to -> from)
+    const reverseExistingRequest = await Request.findOne({
+      from: to,
+      to: from,
+      status: { $in: ["pending", "accepted"] }, 
+    });
+
+    if (reverseExistingRequest) {
+      return res.status(400).json({
+        error: "Ya existe una solicitud activa de este usuario hacia ti",
       });
     }
 

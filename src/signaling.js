@@ -51,7 +51,6 @@ export function initSignaling(server) {
         return;
       }
 
-      // Call lifecycle (signaling messages)
       if (type === "call-init") {
         const to = data.to;
         const callId = generateCallId();
