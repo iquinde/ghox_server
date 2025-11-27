@@ -103,13 +103,25 @@ export function initSignaling(server) {
       }
 
       if (type === "hangup") {
-        const { callId, to } = data;
+        // const { callId, to } = data;
+        // await Call.findOneAndUpdate({ callId }, { status: "ended", endedAt: new Date() });
+        // const otherWs = userSockets.get(to);
+        // if (otherWs && otherWs.readyState === otherWs.OPEN) {
+        //   otherWs.send(JSON.stringify({ type: "hangup", callId }));
+        // }
+        // return;
+
+        const { callId } = data;
         await Call.findOneAndUpdate({ callId }, { status: "ended", endedAt: new Date() });
-        const otherWs = userSockets.get(to);
+
+        const call = await Call.findOne({ callId });
+        const otherUserId = call.from === fromId ? call.to : call.from;
+
+        const otherWs = userSockets.get(otherUserId);
         if (otherWs && otherWs.readyState === otherWs.OPEN) {
           otherWs.send(JSON.stringify({ type: "hangup", callId }));
         }
-        return;
+        return;        
       }
 
       // ignore unknown types
