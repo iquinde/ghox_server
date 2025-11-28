@@ -84,3 +84,29 @@ usersRouter.get("/:id", authMiddleware, async (req, res) => {
 
   res.json({ user: { id: u.userId, username: u.username, displayName: u.displayName } });
 });
+
+/** DELETE /api/users/me
+ * Elimina el usuario autenticado (según token)
+ */
+usersRouter.delete("/me", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId; // 🔑 viene del token gracias a authMiddleware
+
+    // Buscar usuario
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    // Eliminar usuario
+    await User.deleteOne({ userId });
+
+    // Eliminar requests relacionados
+    await Request.deleteMany({ $or: [{ from: userId }, { to: userId }] });
+
+    res.json({ success: true, message: `Usuario ${userId} eliminado correctamente` });
+  } catch (err) {
+    console.error("❌ Error al eliminar usuario:", err);
+    res.status(500).json({ error: "Error interno al eliminar usuario" });
+  }
+});
