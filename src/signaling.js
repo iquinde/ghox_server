@@ -3,16 +3,37 @@ import jwt from "jsonwebtoken";
 import { Call } from "./models/Call.js";
 
 export const userSockets = new Map(); // userId -> ws
+export const userPresence = new Map(); // userId -> { status, lastSeen, displayName }
 
 function generateCallId() {
   return `call_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+// Broadcast presence change to all connected users
+function broadcastPresenceUpdate(userId, status, displayName) {
+  const presenceUpdate = {
+    type: "presence-update",
+    userId,
+    status, // 'online' | 'offline'
+    displayName,
+    timestamp: new Date().toISOString()
+  };
+
+  userSockets.forEach((ws, connectedUserId) => {
+    if (connectedUserId !== userId && ws.readyState === ws.OPEN) {
+      try {
+        ws.send(JSON.stringify(presenceUpdate));
+      } catch (e) {
+        console.warn("Failed to send presence update", e);
+      }
+    }
+  });
 }
 
 export function initSignaling(server) {
   const wss = new WebSocketServer({ server });
 
   wss.on("connection", async (ws, req) => {
-    // Expect token as query param: wss://.../?token=JWT
     try {
       const url = new URL(req.url, `http://${req.headers.host}`);
       const token = url.searchParams.get("token");
@@ -20,9 +41,35 @@ export function initSignaling(server) {
 
       const payload = jwt.verify(token, process.env.JWT_SECRET);
       ws.user = payload;
+      
+      // Store socket and presence
       userSockets.set(payload.userId, ws);
+      userPresence.set(payload.userId, {
+        status: 'online',
+        lastSeen: new Date(),
+        displayName: payload.displayName || payload.username || 'Unknown'
+      });
 
       console.log("WS connected:", payload.userId);
+      
+      // Broadcast that user came online
+      broadcastPresenceUpdate(payload.userId, 'online', payload.displayName || payload.username);
+
+      // Send current online users to the newly connected user
+      const onlineUsers = Array.from(userPresence.entries())
+        .filter(([userId, presence]) => presence.status === 'online' && userId !== payload.userId)
+        .map(([userId, presence]) => ({
+          userId,
+          status: presence.status,
+          displayName: presence.displayName,
+          lastSeen: presence.lastSeen
+        }));
+
+      ws.send(JSON.stringify({
+        type: "presence-list",
+        users: onlineUsers
+      }));
+
     } catch (err) {
       console.warn("WS auth failed:", err.message);
       try { ws.close(4001, "unauthorized"); } catch {}
@@ -39,6 +86,16 @@ export function initSignaling(server) {
 
       const type = data.type;
       const fromId = ws.user?.userId;
+
+      // Handle presence updates (optional - for explicit status changes)
+      if (type === "presence-update") {
+        const status = data.status; // 'online' | 'away' | 'busy'
+        if (userPresence.has(fromId)) {
+          userPresence.get(fromId).status = status;
+          broadcastPresenceUpdate(fromId, status, userPresence.get(fromId).displayName);
+        }
+        return;
+      }
 
       // Forward SDP/ICE to target if connected
       if (["offer", "answer", "ice"].includes(type)) {
@@ -123,14 +180,23 @@ export function initSignaling(server) {
         }
         return;        
       }
-
-      // ignore unknown types
     });
 
     ws.on("close", () => {
       if (ws.user?.userId) {
-        userSockets.delete(ws.user.userId);
-        console.log("WS disconnected:", ws.user.userId);
+        const userId = ws.user.userId;
+        userSockets.delete(userId);
+        
+        // Update presence to offline
+        if (userPresence.has(userId)) {
+          userPresence.get(userId).status = 'offline';
+          userPresence.get(userId).lastSeen = new Date();
+        }
+        
+        console.log("WS disconnected:", userId);
+        
+        // Broadcast that user went offline
+        broadcastPresenceUpdate(userId, 'offline', userPresence.get(userId)?.displayName);
       }
     });
 
@@ -155,4 +221,14 @@ export function notifyUser(userId, payload) {
     console.warn("notifyUser error", e);
   }
   return false;
+}
+
+// Get current presence info
+export function getPresenceInfo() {
+  return Array.from(userPresence.entries()).map(([userId, presence]) => ({
+    userId,
+    status: presence.status,
+    displayName: presence.displayName,
+    lastSeen: presence.lastSeen
+  }));
 }
