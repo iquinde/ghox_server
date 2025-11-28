@@ -108,7 +108,6 @@ export function initSignaling(server) {
         return;
       }
 
-      // Call lifecycle
       if (type === "call-init") {
         const to = data.to;
         const callId = generateCallId();
@@ -155,19 +154,31 @@ export function initSignaling(server) {
         await Call.findOneAndUpdate({ callId }, { status: "rejected", endedAt: new Date() });
         const originWs = userSockets.get(data.from);
         if (originWs && originWs.readyState === originWs.OPEN) {
-          originWs.send(JSON.stringify({ type: "call-rejected", callId }));
+          originWs.send(JSON.stringify({ type: "call-reject", callId }));
         }
         return;
       }
 
       if (type === "hangup") {
-        const { callId, to } = data;
+        // const { callId, to } = data;
+        // await Call.findOneAndUpdate({ callId }, { status: "ended", endedAt: new Date() });
+        // const otherWs = userSockets.get(to);
+        // if (otherWs && otherWs.readyState === otherWs.OPEN) {
+        //   otherWs.send(JSON.stringify({ type: "hangup", callId }));
+        // }
+        // return;
+
+        const { callId } = data;
         await Call.findOneAndUpdate({ callId }, { status: "ended", endedAt: new Date() });
-        const otherWs = userSockets.get(to);
+
+        const call = await Call.findOne({ callId });
+        const otherUserId = call.from === fromId ? call.to : call.from;
+
+        const otherWs = userSockets.get(otherUserId);
         if (otherWs && otherWs.readyState === otherWs.OPEN) {
           otherWs.send(JSON.stringify({ type: "hangup", callId }));
         }
-        return;
+        return;        
       }
     });
 
