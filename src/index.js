@@ -9,7 +9,6 @@ import { callsRouter } from "./routes/calls.js";
 import { presenceRouter } from "./routes/presence.js";
 import http from "http";
 import { initSignaling } from "./signaling.js";
-import { callsRouter } from "./routes/calls.js";
 import swaggerUi from "swagger-ui-express";
 import { requestsRouter } from "./routes/requests.js";
 import YAML from "yamljs";
