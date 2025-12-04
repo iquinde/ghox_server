@@ -5,6 +5,8 @@ import { connectDB } from "./db.js";
 import { authRouter } from "./routes/auth.js";
 import { usersRouter } from "./routes/users.js";
 import { iceRouter } from "./routes/ice.js";
+import { callsRouter } from "./routes/calls.js";
+import { presenceRouter } from "./routes/presence.js";
 import http from "http";
 import { initSignaling } from "./signaling.js";
 import { callsRouter } from "./routes/calls.js";
@@ -37,7 +39,8 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.get("/health", (req, res) => res.json({ ok: true }));
 app.use("/api/auth", authRouter);
 app.use("/api/users", usersRouter);
-app.use("/api/ice-config", iceRouter);
+app.use("/api/ice-config", iceRouter); // Para compatibilidad con cliente web existente
+app.use("/api/ice", iceRouter);        // Para cliente Flutter
 app.use("/api/calls", callsRouter);
 app.use("/api/requests", requestsRouter);
 
