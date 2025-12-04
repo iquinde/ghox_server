@@ -129,6 +129,13 @@ export function initSignaling(server) {
               meta: data.meta || {},
             })
           );
+          // ✅ Notificar al emisor que la llamada se creó correctamente
+          ws.send(JSON.stringify({
+            type: "call-init-ack",
+            callId,
+            to,
+            ok: true,
+          }));
         } else {
           await Call.findByIdAndUpdate(call._id, {
             status: "missed",
