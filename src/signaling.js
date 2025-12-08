@@ -187,6 +187,46 @@ export function initSignaling(server) {
         }
         return;        
       }
+
+      if (type === "chat-message") {
+        const { to, content } = data;
+        const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
+          // Guardar en DB (opcional)
+          // await Message.create({
+          //   messageId,
+          //   from: fromId,
+          //   to,
+          //   content,
+          // });
+
+          const targetWs = userSockets.get(to);
+          if (targetWs && targetWs.readyState === targetWs.OPEN) {
+            targetWs.send(JSON.stringify({
+              type: "chat-message",
+              messageId,
+              from: fromId,
+              content,
+              timestamp: new Date().toISOString(),
+            }));
+
+            // Confirmar entrega al emisor
+            ws.send(JSON.stringify({
+              type: "chat-delivered",
+              messageId,
+              to,
+            }));
+          } else {
+            // Usuario offline → podrías marcar como pendiente
+            ws.send(JSON.stringify({
+              type: "chat-undelivered",
+              messageId,
+              to,
+            }));
+          }
+          return;
+        }
+
     });
 
     ws.on("close", () => {
