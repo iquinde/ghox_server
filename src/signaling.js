@@ -151,7 +151,7 @@ export function initSignaling(server) {
         await Call.findOneAndUpdate({ callId }, { status: "in_call", startedAt: new Date() });
         const originWs = userSockets.get(data.from);
         if (originWs && originWs.readyState === originWs.OPEN) {
-          originWs.send(JSON.stringify({ type: "call-accepted", callId, fromUsername: data.fromUsername }));
+          originWs.send(JSON.stringify({ type: "call-accepted", fromUsername: data.fromUsername , callId }));
         }
         return;
       }
