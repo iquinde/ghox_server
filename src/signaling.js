@@ -110,6 +110,7 @@ export function initSignaling(server) {
 
       if (type === "call-init") {
         const to = data.to;
+        const toUsername = data.toUsername;
         const callId = generateCallId();
         const call = await Call.create({
           callId,
@@ -126,6 +127,7 @@ export function initSignaling(server) {
               type: "incoming-call",
               callId,
               from: fromId,
+              toUsername,
               meta: data.meta || {},
             })
           );
@@ -134,6 +136,7 @@ export function initSignaling(server) {
             type: "call-init-ack",
             callId,
             to,
+            toUsername,
             ok: true,
           }));
         } else {
@@ -151,7 +154,7 @@ export function initSignaling(server) {
         await Call.findOneAndUpdate({ callId }, { status: "in_call", startedAt: new Date() });
         const originWs = userSockets.get(data.from);
         if (originWs && originWs.readyState === originWs.OPEN) {
-          originWs.send(JSON.stringify({ type: "call-accepted", fromUsername: data.fromUsername , callId }));
+          originWs.send(JSON.stringify({ type: "call-accepted", toUsername: data.toUsername , callId }));
         }
         return;
       }
