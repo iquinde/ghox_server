@@ -192,13 +192,6 @@ export function initSignaling(server) {
       }
 
       if (type === "hangup") {
-        // const { callId, to } = data;
-        // await Call.findOneAndUpdate({ callId }, { status: "ended", endedAt: new Date() });
-        // const otherWs = userSockets.get(to);
-        // if (otherWs && otherWs.readyState === otherWs.OPEN) {
-        //   otherWs.send(JSON.stringify({ type: "hangup", callId }));
-        // }
-        // return;
 
         const { callId } = data;
         await Call.findOneAndUpdate({ callId }, { status: "ended", endedAt: new Date() });
@@ -254,8 +247,8 @@ export function initSignaling(server) {
 
     });
 
-    ws.on("close", () => {
-      if (ws.user?.userId) {
+    ws.on("close", async () => {
+      /*if (ws.user?.userId) {
         const userId = ws.user.userId;
         userSockets.delete(userId);
         
@@ -269,6 +262,55 @@ export function initSignaling(server) {
         
         // Broadcast that user went offline
         broadcastPresenceUpdate(userId, 'offline', userPresence.get(userId)?.displayName);
+      }*/
+
+      if (ws.user?.userId) {
+        const userId = ws.user.userId;
+        userSockets.delete(userId);
+
+        // Update presence to offline
+        if (userPresence.has(userId)) {
+          userPresence.get(userId).status = "offline";
+          userPresence.get(userId).lastSeen = new Date();
+        }
+
+        console.log("WS disconnected:", userId);
+
+        // Broadcast that user went offline
+        broadcastPresenceUpdate(
+          userId,
+          "offline",
+          userPresence.get(userId)?.displayName
+        );
+
+        // 🔎 Buscar todas las llamadas activas de este usuario
+        const activeCalls = await Call.find({
+          $or: [
+            { from: userId, status: { $in: ["ringing", "in_call"] } },
+            { to: userId, status: { $in: ["ringing", "in_call"] } },
+          ],
+        });
+
+        for (const call of activeCalls) {
+          // Marcar como rechazadas
+          await Call.findOneAndUpdate(
+            { callId: call.callId },
+            { status: "rejected", endedAt: new Date() }
+          );
+
+          // Notificar al otro participante
+          const otherUserId = call.from === userId ? call.to : call.from;
+          const otherWs = userSockets.get(otherUserId);
+          if (otherWs && otherWs.readyState === otherWs.OPEN) {
+            otherWs.send(
+              JSON.stringify({
+                type: "call-reject",
+                callId: call.callId,
+                reason: "Usuario desconectado",
+              })
+            );
+          }
+        }
       }
     });
 
