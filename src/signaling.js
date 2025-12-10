@@ -111,6 +111,28 @@ export function initSignaling(server) {
       if (type === "call-init") {
         const to = data.to;
         const toUsername = data.toUsername;
+
+         // 🔎 Validar si el emisor o receptor ya están en llamada - inicio
+        const activeCall = await Call.findOne({
+          $or: [
+            { from: fromId, status: { $in: ["ringing", "in_call"] } },
+            { to: fromId, status: { $in: ["ringing", "in_call"] } },
+            { from: to, status: { $in: ["ringing", "in_call"] } },
+            { to: to, status: { $in: ["ringing", "in_call"] } },
+          ],
+          endedAt: { $exists: false } // solo llamadas sin terminar
+        });
+
+        if (activeCall) {
+          ws.send(JSON.stringify({
+            type: "call-init-denied",
+            reason: "Usuario ocupado en otra llamada",
+            callId: activeCall.callId,
+          }));
+          return;
+        }
+         // 🔎 Validar si el emisor o receptor ya están en llamada - fin
+
         const callId = generateCallId();
         const call = await Call.create({
           callId,
