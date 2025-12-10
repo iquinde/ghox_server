@@ -248,21 +248,6 @@ export function initSignaling(server) {
     });
 
     ws.on("close", async () => {
-      /*if (ws.user?.userId) {
-        const userId = ws.user.userId;
-        userSockets.delete(userId);
-        
-        // Update presence to offline
-        if (userPresence.has(userId)) {
-          userPresence.get(userId).status = 'offline';
-          userPresence.get(userId).lastSeen = new Date();
-        }
-        
-        console.log("WS disconnected:", userId);
-        
-        // Broadcast that user went offline
-        broadcastPresenceUpdate(userId, 'offline', userPresence.get(userId)?.displayName);
-      }*/
 
       if (ws.user?.userId) {
         const userId = ws.user.userId;
