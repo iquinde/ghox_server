@@ -1,6 +1,6 @@
 services:
   mongo:
-    image: mongo:7
+    image: mongo:latest
     ports:
       - "27017:27017"
     environment:
@@ -8,3 +8,40 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: adminpassword
     volumes:
       - ./mongo-init:/docker-entrypoint-initdb.d
+  app_dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: ghox_server:dev
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.dev
+    volumes:
+      - ./:/usr/src/app
+    depends_on:
+      - mongo
+
+  app_staging:
+    build:
+      context: .
+      dockerfile: Dockerfile.staging
+    image: ghox_server:staging
+    ports:
+      - "3001:3000"
+    env_file:
+      - .env.staging
+    depends_on:
+      - mongo
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghox_server:latest
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    depends_on:
+      - mongo
