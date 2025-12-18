@@ -6,7 +6,9 @@ info:
     Documentación OpenAPI (Swagger) de la API del servidor de llamadas (Ghox Server).
     Rutas protegidas requieren header `Authorization: Bearer <token>`.
 servers:
-  - url: http://localhost:8080
+  - url: https://app.ghox-server.orb.local
+  - url: https://app-staging.ghox-server.orb.local
+  - url: https://app-dev.ghox-server.orb.local
   - url: https://ghox-server-hzis.onrender.com
 components:
   securitySchemes:
