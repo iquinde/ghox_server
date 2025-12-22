@@ -1,8 +1,8 @@
 services:
-  mongo:
+  mongo_ghox:
     image: mongo:latest
     ports:
-      - "27017:27017"
+      - "27018:27017"
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
       MONGO_INITDB_ROOT_PASSWORD: adminpassword
@@ -14,13 +14,13 @@ services:
       dockerfile: Dockerfile.dev
     image: ghox_server:dev
     ports:
-      - "3000:3000"
+      - "3002:3000"
     env_file:
       - .env.dev
     volumes:
       - ./:/usr/src/app
     depends_on:
-      - mongo
+      - mongo_ghox
 
   app_staging:
     build:
@@ -32,7 +32,7 @@ services:
     env_file:
       - .env.staging
     depends_on:
-      - mongo
+      - mongo_ghox
 
   app:
     build:
@@ -40,8 +40,8 @@ services:
       dockerfile: Dockerfile
     image: ghox_server:latest
     ports:
-      - "3000:3000"
+      - "3003:3000"
     env_file:
       - .env
     depends_on:
-      - mongo
+      - mongo_ghox
