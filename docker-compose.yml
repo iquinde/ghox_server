@@ -40,7 +40,7 @@ services:
       dockerfile: Dockerfile
     image: ghox_server:latest
     ports:
-      - "3003:3000"
+      - "3003:3003"
     env_file:
       - .env
     depends_on:
