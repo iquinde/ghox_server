@@ -3,6 +3,7 @@ version: '3.8'
 services:
   # Servidor coturn para STUN/TURN
   coturn:
+    container_name: ghox-coturn
     image: coturn/coturn:latest
     restart: always
     network_mode: host
@@ -12,6 +13,7 @@ services:
     
   # Servidor Node.js
   api:
+    container_name: ghox-api
     build: .
     restart: always
     ports:
