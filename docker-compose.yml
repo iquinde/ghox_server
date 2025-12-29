@@ -8,7 +8,6 @@ services:
     environment:
       - MONGO_INITDB_DATABASE=ghox
     volumes:
-      - mongo-data:/data/db
       - ./mongo-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
@@ -23,7 +22,8 @@ services:
     restart: always
     network_mode: host
     volumes:
-      - ./mongo-init:/docker-entrypoint-initdb.d
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command: ["-c", "/etc/coturn/turnserver.conf"]
   app_dev:
     build:
       context: .
@@ -36,7 +36,8 @@ services:
     volumes:
       - ./:/usr/src/app
     depends_on:
-      - mongo_ghox
+      mongo_ghox:
+        condition: service_healthy
 
   app_staging:
     build:
@@ -48,7 +49,8 @@ services:
     env_file:
       - .env.staging
     depends_on:
-      - mongo_ghox
+      mongo_ghox:
+        condition: service_healthy
 
   app:
     build:
@@ -60,4 +62,5 @@ services:
     env_file:
       - .env
     depends_on:
-      - mongo_ghox
+      mongo_ghox:
+        condition: service_healthy
