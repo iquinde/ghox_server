@@ -6,8 +6,11 @@ services:
     ports:
       - "27018:27017"
     environment:
-      - MONGO_INITDB_DATABASE=ghox
+      MONGO_INITDB_DATABASE: ghox
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: adminpassword
     volumes:
+      #- mongo-data:/data/db
       - ./mongo-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
@@ -22,8 +25,13 @@ services:
     restart: always
     network_mode: host
     volumes:
+      # Mount our custom configuration so coturn reads the expected paths
       - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
-    command: ["-c", "/etc/coturn/turnserver.conf"]
+      # Place your cert and key under ./certs/ locally and they will be available
+      # - ./certs/turn_server_cert.pem:/etc/coturn/turn_server_cert.pem:ro
+      # - ./certs/turn_server_pkey.pem:/etc/coturn/turn_server_pkey.pem:ro
+      - ./mongo-init:/docker-entrypoint-initdb.d:ro
+      
   app_dev:
     build:
       context: .
@@ -33,11 +41,9 @@ services:
       - "3002:3000"
     env_file:
       - .env.dev
-    volumes:
-      - ./:/usr/src/app
     depends_on:
-      mongo_ghox:
-        condition: service_healthy
+      - mongo_ghox
+      - coturn
 
   app_staging:
     build:
@@ -49,8 +55,8 @@ services:
     env_file:
       - .env.staging
     depends_on:
-      mongo_ghox:
-        condition: service_healthy
+      - mongo_ghox
+      - coturn
 
   app:
     build:
@@ -62,5 +68,5 @@ services:
     env_file:
       - .env
     depends_on:
-      mongo_ghox:
-        condition: service_healthy
+      - mongo_ghox
+      - coturn
