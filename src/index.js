@@ -51,6 +51,6 @@ const PORT = process.env.PORT || 8080;
 
 connectDB().then(() => {
   server.listen(PORT, "0.0.0.0", () =>
-    console.log(`API escuchando en http://0.0.0.0:${PORT}`)
+    console.log(`API escuchando en la http://0.0.0.0:${PORT}`)
   );
 });
