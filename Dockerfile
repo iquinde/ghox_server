@@ -1,18 +1,20 @@
-FROM node:20-alpine
+FROM node:18-alpine
 
-WORKDIR /app
+# Create app directory
+WORKDIR /usr/src/app
 
-# Copiar package files
+# Install dependencies (copy package files first for better caching)
 COPY package*.json ./
+RUN npm install --production
 
-# Instalar dependencias
-RUN npm ci --only=production
+# Copy application source
+COPY . ./
 
-# Copiar código fuente
-COPY . .
+# Use production environment
+ENV NODE_ENV=production
 
-# Exponer puerto
-EXPOSE 8080
+# Expose the port the app listens on (use PORT env var in your app)
+EXPOSE 3000
 
-# Comando de inicio
-CMD ["node", "src/index.js"]
+# Start the app
+CMD ["npm", "start"]

@@ -10,3 +10,7 @@ deploy.sh
 ecosystem.config.*
 docker-compose.yml
 Dockerfile
+.DS_Store
+build
+dist
+.vscode

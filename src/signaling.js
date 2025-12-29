@@ -110,6 +110,29 @@ export function initSignaling(server) {
 
       if (type === "call-init") {
         const to = data.to;
+        const toUsername = data.toUsername;
+
+         // 🔎 Validar si el emisor o receptor ya están en llamada - inicio
+        const activeCall = await Call.findOne({
+          $or: [
+            { from: fromId, status: { $in: ["ringing", "in_call"] } },
+            { to: fromId, status: { $in: ["ringing", "in_call"] } },
+            { from: to, status: { $in: ["ringing", "in_call"] } },
+            { to: to, status: { $in: ["ringing", "in_call"] } },
+          ],
+          endedAt: { $exists: false } // solo llamadas sin terminar
+        });
+
+        if (activeCall) {
+          ws.send(JSON.stringify({
+            type: "call-init-denied",
+            reason: "Usuario ocupado en otra llamada",
+            callId: activeCall.callId,
+          }));
+          return;
+        }
+         // 🔎 Validar si el emisor o receptor ya están en llamada - fin
+
         const callId = generateCallId();
         const call = await Call.create({
           callId,
@@ -126,6 +149,7 @@ export function initSignaling(server) {
               type: "incoming-call",
               callId,
               from: fromId,
+              toUsername,
               meta: data.meta || {},
             })
           );
@@ -134,6 +158,7 @@ export function initSignaling(server) {
             type: "call-init-ack",
             callId,
             to,
+            toUsername,
             ok: true,
           }));
         } else {
@@ -151,7 +176,7 @@ export function initSignaling(server) {
         await Call.findOneAndUpdate({ callId }, { status: "in_call", startedAt: new Date() });
         const originWs = userSockets.get(data.from);
         if (originWs && originWs.readyState === originWs.OPEN) {
-          originWs.send(JSON.stringify({ type: "call-accepted", callId }));
+          originWs.send(JSON.stringify({ type: "call-accepted", toUsername: data.toUsername , callId }));
         }
         return;
       }
@@ -167,13 +192,6 @@ export function initSignaling(server) {
       }
 
       if (type === "hangup") {
-        // const { callId, to } = data;
-        // await Call.findOneAndUpdate({ callId }, { status: "ended", endedAt: new Date() });
-        // const otherWs = userSockets.get(to);
-        // if (otherWs && otherWs.readyState === otherWs.OPEN) {
-        //   otherWs.send(JSON.stringify({ type: "hangup", callId }));
-        // }
-        // return;
 
         const { callId } = data;
         await Call.findOneAndUpdate({ callId }, { status: "ended", endedAt: new Date() });
@@ -187,23 +205,97 @@ export function initSignaling(server) {
         }
         return;        
       }
+
+      if (type === "chat-message") {
+        const { to, content } = data;
+        const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
+          // Guardar en DB (opcional)
+          // await Message.create({
+          //   messageId,
+          //   from: fromId,
+          //   to,
+          //   content,
+          // });
+
+          const targetWs = userSockets.get(to);
+          if (targetWs && targetWs.readyState === targetWs.OPEN) {
+            targetWs.send(JSON.stringify({
+              type: "chat-message",
+              messageId,
+              from: fromId,
+              content,
+              timestamp: new Date().toISOString(),
+            }));
+
+            // Confirmar entrega al emisor
+            ws.send(JSON.stringify({
+              type: "chat-delivered",
+              messageId,
+              to,
+            }));
+          } else {
+            // Usuario offline → podrías marcar como pendiente
+            ws.send(JSON.stringify({
+              type: "chat-undelivered",
+              messageId,
+              to,
+            }));
+          }
+          return;
+        }
+
     });
 
-    ws.on("close", () => {
+    ws.on("close", async () => {
+
       if (ws.user?.userId) {
         const userId = ws.user.userId;
         userSockets.delete(userId);
-        
+
         // Update presence to offline
         if (userPresence.has(userId)) {
-          userPresence.get(userId).status = 'offline';
+          userPresence.get(userId).status = "offline";
           userPresence.get(userId).lastSeen = new Date();
         }
-        
+
         console.log("WS disconnected:", userId);
-        
+
         // Broadcast that user went offline
-        broadcastPresenceUpdate(userId, 'offline', userPresence.get(userId)?.displayName);
+        broadcastPresenceUpdate(
+          userId,
+          "offline",
+          userPresence.get(userId)?.displayName
+        );
+
+        // 🔎 Buscar todas las llamadas activas de este usuario
+        const activeCalls = await Call.find({
+          $or: [
+            { from: userId, status: { $in: ["ringing", "in_call"] } },
+            { to: userId, status: { $in: ["ringing", "in_call"] } },
+          ],
+        });
+
+        for (const call of activeCalls) {
+          // Marcar como rechazadas
+          await Call.findOneAndUpdate(
+            { callId: call.callId },
+            { status: "rejected", endedAt: new Date() }
+          );
+
+          // Notificar al otro participante
+          const otherUserId = call.from === userId ? call.to : call.from;
+          const otherWs = userSockets.get(otherUserId);
+          if (otherWs && otherWs.readyState === otherWs.OPEN) {
+            otherWs.send(
+              JSON.stringify({
+                type: "call-reject",
+                callId: call.callId,
+                reason: "Usuario desconectado",
+              })
+            );
+          }
+        }
       }
     });
 
