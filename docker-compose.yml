@@ -1,11 +1,27 @@
+version: '3.8'
+
 services:
   mongo_ghox:
     image: mongo:latest
     ports:
       - "27018:27017"
     environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: adminpassword
+      - MONGO_INITDB_DATABASE=ghox
+    volumes:
+      - mongo-data:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Servidor coturn para STUN/TURN
+  coturn:
+    container_name: ghox-coturn
+    image: coturn/coturn:latest
+    restart: always
+    network_mode: host
     volumes:
       - ./mongo-init:/docker-entrypoint-initdb.d
   app_dev:
