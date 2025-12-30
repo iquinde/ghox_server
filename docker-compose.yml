@@ -24,15 +24,11 @@ services:
     image: coturn/coturn:latest
     restart: always
     network_mode: host
-    environment:
-      - SERVER_HOST=${SERVER_HOST:-localhost}
     volumes:
-      - ./turnserver.conf.template:/etc/coturn/turnserver.conf.template:ro
-      - ./coturn-entrypoint.sh:/coturn-entrypoint.sh:ro
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
       # Place your cert and key under ./certs/ locally and they will be available
       # - ./certs/turn_server_cert.pem:/etc/coturn/turn_server_cert.pem:ro
       # - ./certs/turn_server_pkey.pem:/etc/coturn/turn_server_pkey.pem:ro
-    entrypoint: ["/bin/sh", "/coturn-entrypoint.sh"]
     command: ["-c", "/etc/coturn/turnserver.conf"]
       
   app_dev:
