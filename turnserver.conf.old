@@ -1,7 +1,7 @@
 listening-port=3478
 listening-ip=0.0.0.0
-external-ip=69.48.200.96
-relay-ip=69.48.200.96
+external-ip=104.131.53.14
+relay-ip=104.131.53.14
 realm=ghox.app
 lt-cred-mech
 user=ghoxuser:GhoxPass123
