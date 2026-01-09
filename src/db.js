@@ -14,6 +14,7 @@ export async function connectDB(uri = process.env.MONGO_URI) {
     const adminUsername = process.env.ADMIN_USERNAME || 'admin';
     const adminUserId = process.env.ADMIN_USERID || '000000001';
     const adminDisplayName = process.env.ADMIN_DISPLAYNAME || 'Administrador';
+    const deviceId = process.env.ADMIN_DEVICE_ID || 'deviceAdmin';
 
     const admin = await User.findOne({ username: adminUsername });
     if (!admin) {
@@ -21,6 +22,8 @@ export async function connectDB(uri = process.env.MONGO_URI) {
         userId: adminUserId,
         username: adminUsername,
         displayName: adminDisplayName,
+        sessionToken:null,
+        deviceId: deviceId,
         role: 'admin'
       });
       console.log('🛡️ Usuario admin creado automáticamente');

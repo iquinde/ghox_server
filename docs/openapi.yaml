@@ -10,6 +10,8 @@ servers:
   - url: https://app-staging.ghox-server.orb.local
   - url: https://app-dev.ghox-server.orb.local
   - url: https://ghox-server-hzis.onrender.com
+  - url: https://ghox.tech-services-explore.com
+  - url: http://0.0.0.0:3003
 components:
   securitySchemes:
     bearerAuth:
@@ -136,6 +138,8 @@ paths:
               type: object
               properties:
                 username:
+                  type: string
+                deviceId:
                   type: string
               required:
                 - username

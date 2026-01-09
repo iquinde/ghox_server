@@ -39,6 +39,10 @@ usersRouter.get("/", authMiddleware, async (req, res) => {
   res.json({ users });
 });
 
+/** GET /api/usersAdd
+ * Devuelve todos los usuarios a los que puedo agregar (no están en mi cuenta y no son admin)
+ */
+
 /** GET /api/users
  * Devuelve todos los usuarios que tengo agregado a mi cuenta
  */
@@ -91,6 +95,10 @@ usersRouter.get("/:id", authMiddleware, async (req, res) => {
 usersRouter.delete("/me", authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId; // 🔑 viene del token gracias a authMiddleware
+
+    if (userId === "000000001") {
+      return res.status(404).json({ error: "Usuario no puede ser eliminado" });
+    }
 
     // Buscar usuario
     const user = await User.findOne({ userId });
