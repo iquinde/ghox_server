@@ -40,8 +40,35 @@ usersRouter.get("/", authMiddleware, async (req, res) => {
 });
 
 /** GET /api/usersAdd
- * Devuelve todos los usuarios a los que puedo agregar (no están en mi cuenta y no son admin)
+ * Devuelve todos los usuarios a los que puedo agregar (no están Agregados a mi cuenta)
  */
+usersRouter.get("/usersadd", authMiddleware, async (req, res) => {
+
+  try {
+
+    // Buscar requests donde el usuario actual sea 'from' o 'to'
+    const requests = await Request.find({
+      status: { $in: ["pending", "accepted"] },
+      $or: [{ from: req.user.userId }, { to: req.user.userId }]
+    }).lean();
+
+    // Extraer todos los userIds involucrados
+    const userIds = requests.flatMap(r => [r.from, r.to]);
+
+    // Filtrar usuarios
+    const filter = { userId: { $nin: userIds, $ne: req.user.userId } };
+    if (process.env.ADMIN_USERNAME) {
+      filter.username = { $ne: process.env.ADMIN_USERNAME };
+    }
+
+    const users = await User.find(filter, { userId: 1, username: 1, displayName: 1 }).lean();
+    res.json({ users });
+
+  } catch (err) {
+    console.error("❌ Error en /usersadd:", err);
+    return res.status(500).json({ error: "Error al obtener usuarios" });
+  }
+});
 
 /** GET /api/users
  * Devuelve todos los usuarios que tengo agregado a mi cuenta
