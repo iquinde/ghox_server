@@ -158,4 +158,34 @@ router.patch("/:id", authMiddleware, async (req, res) => {
   }
 });
 
+router.delete("/:id", authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.userId;
+
+    // Validar que el string sea un ObjectId válido
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ error: "ID de solicitud inválido" });
+    }
+
+    // Buscar la solicitud
+    const request = await Request.findById(id);
+    if (!request) {
+      return res.status(400).json({ error: "Solicitud no encontrada" });
+    }
+
+    // Solo el emisor o receptor pueden eliminar la solicitud
+    if (request.from !== userId && request.to !== userId) {
+      return res.status(403).json({ error: "No tienes permiso para eliminar esta solicitud." });
+    }
+
+    await Request.findByIdAndDelete(id);
+
+    res.json({ message: "Solicitud eliminada correctamente" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
 export const requestsRouter = router;
