@@ -188,4 +188,31 @@ router.delete("/:id", authMiddleware, async (req, res) => {
   }
 });
 
+/* 
+  Eliminar contacto
+*/
+router.delete("/contact/:userId", authMiddleware, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const currentUserId = req.user.userId;
+
+    // Eliminar la solicitud aceptada que representa la relación de contacto
+    const deletedRequest = await Request.findOneAndDelete({
+      $or: [
+        { from: currentUserId, to: userId, status: "accepted" },
+        { from: userId, to: currentUserId, status: "accepted" }
+      ]
+    });
+
+    if (!deletedRequest) {
+      return res.status(404).json({ error: "No se encontró una relación de contacto para eliminar." });
+    }
+
+    res.json({ message: "Contacto eliminado correctamente." });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
 export const requestsRouter = router;
