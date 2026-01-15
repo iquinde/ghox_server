@@ -7,12 +7,13 @@ import { usersRouter } from "./routes/users.js";
 import { iceRouter } from "./routes/ice.js";
 import { callsRouter } from "./routes/calls.js";
 import { presenceRouter } from "./routes/presence.js";
-import http from "http";
+import http from "https";
 import { initSignaling } from "./signaling.js";
 import swaggerUi from "swagger-ui-express";
 import { requestsRouter } from "./routes/requests.js";
 import YAML from "yamljs";
 import path from "path";
+import fs from "fs";
 
 const app = express();
 app.use(cors());
@@ -44,7 +45,10 @@ app.use("/api/calls", callsRouter);
 app.use("/api/requests", requestsRouter);
 
 // Servidor HTTP + WebRTC signaling
-const server = http.createServer(app);
+const server = http.createServer({
+  key: fs.readFileSync('./certs/turn_server_key.pem'),
+  cert: fs.readFileSync('./certs/turn_server_cert.pem'),
+},app);
 initSignaling(server);
 
 const PORT = process.env.PORT || 8080;
