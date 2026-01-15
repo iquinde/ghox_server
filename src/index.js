@@ -46,7 +46,7 @@ app.use("/api/requests", requestsRouter);
 
 // Servidor HTTP + WebRTC signaling
 const server = http.createServer({
-  key: fs.readFileSync('./certs/turn_server_key.pem'),
+  key: fs.readFileSync('./certs/turn_server_pkey.pem'),
   cert: fs.readFileSync('./certs/turn_server_cert.pem'),
 },app);
 initSignaling(server);
