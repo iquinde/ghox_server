@@ -7,7 +7,7 @@ import { usersRouter } from "./routes/users.js";
 import { iceRouter } from "./routes/ice.js";
 import { callsRouter } from "./routes/calls.js";
 import { presenceRouter } from "./routes/presence.js";
-import http from "https";
+import https from "https";
 import { initSignaling } from "./signaling.js";
 import swaggerUi from "swagger-ui-express";
 import { requestsRouter } from "./routes/requests.js";
@@ -45,7 +45,7 @@ app.use("/api/calls", callsRouter);
 app.use("/api/requests", requestsRouter);
 
 // Servidor HTTP + WebRTC signaling
-const server = http.createServer({
+const server = https.createServer({
   key: fs.readFileSync('./certs/turn_server_pkey.pem'),
   cert: fs.readFileSync('./certs/turn_server_cert.pem'),
 },app);
@@ -55,6 +55,6 @@ const PORT = process.env.PORT || 8080;
 
 connectDB().then(() => {
   server.listen(PORT, "0.0.0.0", () =>
-    console.log(`API escuchando en la http://0.0.0.0:${PORT}`)
+    console.log(`API escuchando en la https://0.0.0.0:${PORT}`)
   );
 });
