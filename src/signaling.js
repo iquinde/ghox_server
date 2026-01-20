@@ -42,6 +42,13 @@ export function initSignaling(server) {
       const payload = jwt.verify(token, process.env.JWT_SECRET);
       ws.user = payload;
       
+      // Cerrar conexión anterior si existe (evitar múltiples conexiones del mismo usuario)
+      const existingWs = userSockets.get(payload.userId);
+      if (existingWs && existingWs.readyState === existingWs.OPEN) {
+        console.log(`Cerrando conexión anterior de: ${payload.userId}`);
+        existingWs.close(1000, 'New connection established');
+      }
+      
       // Store socket and presence
       userSockets.set(payload.userId, ws);
       userPresence.set(payload.userId, {
