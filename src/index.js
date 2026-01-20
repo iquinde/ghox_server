@@ -6,7 +6,6 @@ import { authRouter } from "./routes/auth.js";
 import { usersRouter } from "./routes/users.js";
 import { iceRouter } from "./routes/ice.js";
 import { callsRouter } from "./routes/calls.js";
-import { presenceRouter } from "./routes/presence.js";
 import http from "http";
 import { initSignaling } from "./signaling.js";
 import swaggerUi from "swagger-ui-express";
@@ -17,6 +16,7 @@ import path from "path";
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.set("trust proxy", true); // Para que funcione bien detrás de un proxy inverso
 
 // Configuración de Swagger
 const swaggerOptions = {
