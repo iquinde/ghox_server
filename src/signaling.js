@@ -33,14 +33,7 @@ function broadcastPresenceUpdate(userId, status, displayName) {
 export function initSignaling(server) {
   const wss = new WebSocketServer({ server });
 
-  // Configuración de ping/pong
-  const PING_INTERVAL = 25000; // 25 segundos
-  const PING_TIMEOUT = 60000; // 60 segundos
-
   wss.on("connection", async (ws, req) => {
-    let pingTimeout;
-    let isAlive = true;
-
     try {
       const url = new URL(req.url, `http://${req.headers.host}`);
       const token = url.searchParams.get("token");
@@ -58,23 +51,6 @@ export function initSignaling(server) {
       });
 
       console.log("WS connected:", payload.userId);
-
-      // Configurar ping/pong
-      ws.on('pong', () => {
-        isAlive = true;
-      });
-
-      // Iniciar intervalo de ping
-      const pingInterval = setInterval(() => {
-        if (!isAlive) {
-          console.log(`Conexión muerta detectada: ${payload.userId}`);
-          clearInterval(pingInterval);
-          ws.terminate();
-          return;
-        }
-        isAlive = false;
-        ws.ping();
-      }, PING_INTERVAL);
       
       // Broadcast that user came online
       broadcastPresenceUpdate(payload.userId, 'online', payload.displayName || payload.username);
@@ -272,11 +248,6 @@ export function initSignaling(server) {
     });
 
     ws.on("close", async () => {
-      // Limpiar intervalo de ping
-      if (pingInterval) {
-        clearInterval(pingInterval);
-      }
-
       if (ws.user?.userId) {
         const userId = ws.user.userId;
         userSockets.delete(userId);
