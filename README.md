@@ -1,6 +1,6 @@
 # Ghox Server
 
-Servidor Node.js para la aplicación Ghox.
+Servidor Node.js para la aplicación Ghox llamadas por voz.
 
 Este repositorio contiene el backend (Express + Socket.IO + MongoDB) y configuraciones para ejecutar en tres ambientes: desarrollo, staging y producción usando Docker.
 
