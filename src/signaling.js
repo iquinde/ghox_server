@@ -144,11 +144,14 @@ export function initSignaling(server) {
 
         const targetWs = userSockets.get(to);
         if (targetWs && targetWs.readyState === targetWs.OPEN) {
+          const fromPresence = userPresence.get(fromId);
+          const fromDisplayName = fromPresence?.displayName || '';
           targetWs.send(
             JSON.stringify({
               type: "incoming-call",
               callId,
               from: fromId,
+              fromDisplayName,
               toUsername,
               meta: data.meta || {},
             })
@@ -187,6 +190,19 @@ export function initSignaling(server) {
         const originWs = userSockets.get(data.from);
         if (originWs && originWs.readyState === originWs.OPEN) {
           originWs.send(JSON.stringify({ type: "call-reject", callId }));
+        }
+        return;
+      }
+
+      if (type === "call-cancel") {
+        const { callId } = data;
+        const call = await Call.findOne({ callId });
+        if (call && call.from === fromId && call.status === "ringing") {
+          await Call.findOneAndUpdate({ callId }, { status: "missed", endedAt: new Date() });
+          const targetWs = userSockets.get(call.to);
+          if (targetWs && targetWs.readyState === targetWs.OPEN) {
+            targetWs.send(JSON.stringify({ type: "call-cancel", callId }));
+          }
         }
         return;
       }
