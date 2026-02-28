@@ -5,6 +5,31 @@ import { Call } from "../models/Call.js";
 export const callsRouter = Router();
 
 /**
+ * GET /api/calls
+ * Devuelve el historial de llamadas del usuario autenticado.
+ */
+callsRouter.get("/", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { status } = req.query;
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
+
+    const filter = { $or: [{ from: userId }, { to: userId }] };
+    if (status) filter.status = status;
+
+    const calls = await Call.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    return res.json({ calls });
+  } catch (err) {
+    console.error("calls/ error:", err);
+    return res.status(500).json({ error: "failed to get calls" });
+  }
+});
+
+/**
  * POST /api/calls/start
  * body: { to: "<userId>", meta: { ... } }
  * Crea registro de llamada y devuelve callId.
@@ -62,10 +87,13 @@ callsRouter.post("/voice", authMiddleware, async (req, res) => {
     try {
       const mod = await import("../signaling.js");
       if (mod && typeof mod.notifyUser === "function") {
+        const fromPresence = mod.userPresence?.get(from);
+        const fromDisplayName = fromPresence?.displayName || '';
         mod.notifyUser(to, {
           type: "incoming-call",
           callId,
           from,
+          fromDisplayName,
           meta: mergedMeta,
         });
       }
